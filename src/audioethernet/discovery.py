@@ -21,6 +21,7 @@ class SenderOffer:
     sample_rate: int
     bit_depth: int
     channels: int
+    frame_samples: int
 
 
 def _safe_json_parse(payload: bytes) -> Optional[dict]:
@@ -88,6 +89,7 @@ class SenderDiscoveryService:
                 "sample_rate": self._config.sample_rate,
                 "bit_depth": self._config.bit_depth,
                 "channels": self._config.channels,
+                "frame_samples": self._config.frame_samples,
                 "ts": time.time(),
             }
             self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
@@ -139,6 +141,7 @@ class ReceiverDiscoveryClient:
                 sample_rate=int(message.get("sample_rate", 0)),
                 bit_depth=int(message.get("bit_depth", 0)),
                 channels=int(message.get("channels", 0)),
+                frame_samples=int(message.get("frame_samples", 0)),
             )
 
         return None

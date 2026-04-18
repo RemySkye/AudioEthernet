@@ -37,10 +37,15 @@ Keep both terminal windows open while streaming.
 
 ```bash
 audioethernet -s --bit-depth 24 --sample-rate 48000
-audioethernet -r --bit-depth 24 --sample-rate 48000
 audioethernet -s --latency-profile low --frame-ms 5
 audioethernet -s --capture-processing processed
 ```
+
+## Receiver Format Sync
+
+- Receiver now auto-syncs to sender stream format (bit depth, sample rate, and frame size).
+- You can keep receiver command simple: `audioethernet -r`.
+- Sender format controls the active stream format.
 
 ## Capture Processing Modes
 

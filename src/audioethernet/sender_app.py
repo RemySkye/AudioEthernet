@@ -51,7 +51,7 @@ class SenderApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s",
+            "Sender starting | stream=%s-bit/%sHz/%sms | capture=%s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.frame_ms,
@@ -102,10 +102,14 @@ class SenderApp:
         with self._targets_lock:
             first_seen = key not in self._targets
             self._targets[key] = time.monotonic()
+            targets_now = len(self._targets)
 
         if first_seen:
             self._logger.info(
-                "Receiver discovered at %s:%s", receiver_ip, receiver_port
+                "Receiver online: %s:%s (targets=%s)",
+                receiver_ip,
+                receiver_port,
+                targets_now,
             )
 
     def _on_audio_frame(self, frame_bytes: bytes, frame_samples: int) -> None:
@@ -130,16 +134,24 @@ class SenderApp:
         now = time.monotonic()
         timeout = self._config.sender_peer_timeout_seconds
         active: list[tuple[str, int]] = []
-        stale: list[tuple[str, int]] = []
+        stale: list[tuple[tuple[str, int], float]] = []
 
         with self._targets_lock:
             for target, last_seen in self._targets.items():
                 if (now - last_seen) <= timeout:
                     active.append(target)
                 else:
-                    stale.append(target)
-            for target in stale:
+                    stale.append((target, last_seen))
+            for target, _ in stale:
                 del self._targets[target]
+
+        for target, last_seen in stale:
+            self._logger.info(
+                "Receiver inactive: %s:%s timed out after %.1fs",
+                target[0],
+                target[1],
+                now - last_seen,
+            )
 
         return active
 
@@ -196,8 +208,14 @@ class SenderApp:
             mem_mb = self._process.memory_info().rss / (1024 * 1024)
             targets = len(self._active_targets())
             queue_depth = self._audio_queue.qsize()
+            state = "streaming" if targets else "waiting-for-receiver"
             self._logger.info(
-                "sender metrics | targets=%s queue=%s sent=%s drop=%s cpu=%.1f%% mem=%.1fMB",
+                "sender stats | state=%s stream=%s-bit/%sHz/%sms capture=%s targets=%s queue=%s sent=%s dropped=%s cpu=%.1f%% mem=%.1fMB",
+                state,
+                self._config.bit_depth,
+                self._config.sample_rate,
+                self._config.frame_ms,
+                self._config.capture_processing,
                 targets,
                 queue_depth,
                 snapshot.packets_sent,
