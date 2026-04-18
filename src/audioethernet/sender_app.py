@@ -50,13 +50,12 @@ class SenderApp:
         self._process.cpu_percent(interval=None)
 
     def run_forever(self) -> None:
-        capture_label = self._capture_mode_label()
         self._logger.info(
-            "Sender starting | stream=%s-bit/%sHz/%sms | capture=%s",
+            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.frame_ms,
-            capture_label,
+            self._config.capture_processing,
         )
 
         self._discovery.start()
@@ -103,14 +102,10 @@ class SenderApp:
         with self._targets_lock:
             first_seen = key not in self._targets
             self._targets[key] = time.monotonic()
-            targets_now = len(self._targets)
 
         if first_seen:
             self._logger.info(
-                "Receiver online: %s:%s (targets=%s)",
-                receiver_ip,
-                receiver_port,
-                targets_now,
+                "Receiver discovered at %s:%s", receiver_ip, receiver_port
             )
 
     def _on_audio_frame(self, frame_bytes: bytes, frame_samples: int) -> None:
@@ -135,24 +130,16 @@ class SenderApp:
         now = time.monotonic()
         timeout = self._config.sender_peer_timeout_seconds
         active: list[tuple[str, int]] = []
-        stale: list[tuple[tuple[str, int], float]] = []
+        stale: list[tuple[str, int]] = []
 
         with self._targets_lock:
             for target, last_seen in self._targets.items():
                 if (now - last_seen) <= timeout:
                     active.append(target)
                 else:
-                    stale.append((target, last_seen))
-            for target, _ in stale:
+                    stale.append(target)
+            for target in stale:
                 del self._targets[target]
-
-        for target, last_seen in stale:
-            self._logger.info(
-                "Receiver inactive: %s:%s timed out after %.1fs",
-                target[0],
-                target[1],
-                now - last_seen,
-            )
 
         return active
 
@@ -161,15 +148,6 @@ class SenderApp:
 
         while not self._stop_event.is_set():
             active_targets = self._active_targets()
-
-            if not active_targets:
-                # Keep capture queue from growing while no receivers are active,
-                # but skip packet serialization work until a target appears.
-                try:
-                    self._audio_queue.get(timeout=0.05)
-                except queue.Empty:
-                    pass
-                continue
 
             try:
                 frame_bytes, frame_samples = self._audio_queue.get(timeout=0.05)
@@ -211,13 +189,6 @@ class SenderApp:
             self._sequence = (self._sequence + 1) & 0xFFFFFFFF
             self._timestamp_samples += frame_samples
 
-    def _capture_mode_label(self) -> str:
-        requested = self._config.capture_processing
-        active = self._capture.active_processing_mode()
-        if active == requested:
-            return requested
-        return f"{requested}->{active}"
-
     def _metrics_loop(self) -> None:
         while not self._stop_event.wait(10.0):
             snapshot = self._metrics.snapshot()
@@ -225,15 +196,8 @@ class SenderApp:
             mem_mb = self._process.memory_info().rss / (1024 * 1024)
             targets = len(self._active_targets())
             queue_depth = self._audio_queue.qsize()
-            state = "streaming" if targets else "waiting-for-receiver"
-            capture_label = self._capture_mode_label()
             self._logger.info(
-                "sender stats | state=%s stream=%s-bit/%sHz/%sms capture=%s targets=%s queue=%s sent=%s dropped=%s cpu=%.1f%% mem=%.1fMB",
-                state,
-                self._config.bit_depth,
-                self._config.sample_rate,
-                self._config.frame_ms,
-                capture_label,
+                "sender metrics | targets=%s queue=%s sent=%s drop=%s cpu=%.1f%% mem=%.1fMB",
                 targets,
                 queue_depth,
                 snapshot.packets_sent,

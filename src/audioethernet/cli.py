@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import List, Optional
 
 from .config import StreamConfig
 from .logging_setup import configure_logging
@@ -13,7 +12,7 @@ from .sender_app import SenderApp
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="audioethernet",
-        description="LAN audio sender/receiver for Windows 10/11",
+        description="LAN audio sender/receiver for Windows 11",
     )
 
     role = parser.add_mutually_exclusive_group(required=True)
@@ -43,9 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--latency-profile",
-        default="low",
+        default="balanced",
         choices=["low", "balanced", "stable"],
-        help="Jitter target profile for receiver (default: low)",
+        help="Jitter target profile for receiver (default: balanced)",
     )
     parser.add_argument(
         "--control-port",
@@ -73,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--queue-max-frames",
         type=int,
-        default=128,
+        default=256,
         help="Maximum queued frames for sender capture queue",
     )
     parser.add_argument(
@@ -88,10 +87,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=8.0,
         help="Sender timeout to drop inactive receiver targets",
     )
+    parser.add_argument(
+        "--capture-processing",
+        default="unprocessed",
+        choices=["unprocessed", "processed"],
+        help=(
+            "Sender capture mode (default: unprocessed). "
+            "Use processed to include endpoint effects such as APO processing."
+        ),
+    )
+
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -103,7 +112,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         bit_depth=args.bit_depth,
         sample_rate=args.sample_rate,
         frame_ms=args.frame_ms,
-        capture_processing="processed",
+        capture_processing=args.capture_processing,
         control_port=args.control_port,
         data_port=args.data_port,
         endpoint_name=endpoint_name or StreamConfig(role=role).endpoint_name,
@@ -126,10 +135,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     except KeyboardInterrupt:
         logger.info("Shutdown requested by user")
         app.stop()
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.exception("Application failed: %s", exc)
-        app.stop()
-        return 1
 
     return 0
 

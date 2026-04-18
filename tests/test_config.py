@@ -7,7 +7,7 @@ def test_default_audio_format_values() -> None:
     assert config.sample_rate == 48000
     assert config.channels == 2
     assert config.frame_samples == 240
-    assert config.capture_processing == "processed"
+    assert config.capture_processing == "unprocessed"
 
 
 def test_24_bit_uses_int32_container() -> None:

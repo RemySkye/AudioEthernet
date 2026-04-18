@@ -7,26 +7,26 @@ SUPPORTED_BIT_DEPTHS = (16, 24)
 SUPPORTED_SAMPLE_RATES = (44100, 48000)
 SUPPORTED_FRAME_MS = (5, 10, 20)
 SUPPORTED_LATENCY_PROFILES = ("low", "balanced", "stable")
-SUPPORTED_CAPTURE_PROCESSING = ("processed",)
+SUPPORTED_CAPTURE_PROCESSING = ("unprocessed", "processed")
 
 
-@dataclass
+@dataclass(slots=True)
 class StreamConfig:
     role: str
     bit_depth: int = 16
     sample_rate: int = 48000
     channels: int = 2
     frame_ms: int = 5
-    capture_processing: str = "processed"
+    capture_processing: str = "unprocessed"
     control_port: int = 50481
     data_port: int = 50482
     endpoint_name: str = socket.gethostname()
-    latency_profile: str = "low"
+    latency_profile: str = "balanced"
     heartbeat_seconds: float = 1.0
     reconnect_seconds: float = 1.0
     sender_peer_timeout_seconds: float = 8.0
     receiver_stream_timeout_seconds: float = 3.0
-    queue_max_frames: int = 128
+    queue_max_frames: int = 256
 
     def validate(self) -> None:
         if self.role not in {"sender", "receiver"}:
@@ -74,7 +74,7 @@ class StreamConfig:
         return self.frame_samples * self.channels * self.bytes_per_sample
 
 
-@dataclass
+@dataclass(slots=True)
 class SenderIdentity:
     name: str
     sample_rate: int
