@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .config import StreamConfig
-from .protocol import StreamFormat
 
 DISCOVER_MESSAGE = "discover"
 OFFER_MESSAGE = "offer"
@@ -22,16 +21,6 @@ class SenderOffer:
     sample_rate: int
     bit_depth: int
     channels: int
-    frame_samples: int
-
-    @property
-    def stream_format(self) -> StreamFormat:
-        return StreamFormat(
-            channels=self.channels,
-            bit_depth=self.bit_depth,
-            sample_rate=self.sample_rate,
-            frame_samples=self.frame_samples,
-        )
 
 
 def _safe_json_parse(payload: bytes) -> Optional[dict]:
@@ -54,11 +43,10 @@ class SenderDiscoveryService:
         self._on_receiver_discover = on_receiver_discover
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        self._send_lock = threading.Lock()
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind(("", self._config.port))
+        self._sock.bind(("", self._config.control_port))
         self._sock.settimeout(0.5)
 
     def start(self) -> None:
@@ -71,29 +59,12 @@ class SenderDiscoveryService:
             self._thread.join(timeout=2.0)
         self._sock.close()
 
-    def send(self, payload: bytes, target: tuple[str, int]) -> None:
-        with self._send_lock:
-            try:
-                self._sock.sendto(payload, target)
-            except ConnectionResetError:
-                return
-            except OSError as exc:
-                if getattr(exc, "winerror", None) == 10054:
-                    return
-                raise
-
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
                 data, addr = self._sock.recvfrom(4096)
             except socket.timeout:
                 continue
-            except ConnectionResetError:
-                continue
-            except OSError as exc:
-                if getattr(exc, "winerror", None) == 10054:
-                    continue
-                raise
 
             message = _safe_json_parse(data)
             if not message:
@@ -103,9 +74,7 @@ class SenderDiscoveryService:
             if message.get("type") != DISCOVER_MESSAGE:
                 continue
 
-            receiver_port = int(message.get("port", 0))
-            if not receiver_port:
-                receiver_port = int(message.get("data_port", 0))
+            receiver_port = int(message.get("data_port", 0))
             if not receiver_port:
                 continue
 
@@ -119,8 +88,6 @@ class SenderDiscoveryService:
                 "sample_rate": self._config.sample_rate,
                 "bit_depth": self._config.bit_depth,
                 "channels": self._config.channels,
-                "frame_samples": self._config.frame_samples,
-                "port": self._config.port,
                 "ts": time.time(),
             }
             self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
@@ -132,47 +99,31 @@ class ReceiverDiscoveryClient:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind(("", self._config.port))
+        self._sock.bind(("", 0))
         self._sock.settimeout(0.4)
 
     def close(self) -> None:
         self._sock.close()
 
-    def send_discover(self) -> None:
+    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
         discover = {
             "tag": PROTOCOL_TAG,
             "type": DISCOVER_MESSAGE,
             "receiver_name": self._config.endpoint_name,
-            "port": self._config.port,
+            "data_port": self._config.data_port,
             "ts": time.time(),
         }
         self._sock.sendto(
             json.dumps(discover).encode("utf-8"),
-            ("255.255.255.255", self._config.port),
+            ("255.255.255.255", self._config.control_port),
         )
-
-    def recv(self, timeout_seconds: float = 0.5) -> Optional[tuple[bytes, tuple[str, int]]]:
-        self._sock.settimeout(timeout_seconds)
-        try:
-            return self._sock.recvfrom(65535)
-        except socket.timeout:
-            return None
-        except ConnectionResetError:
-            return None
-        except OSError as exc:
-            if getattr(exc, "winerror", None) == 10054:
-                return None
-            raise
-
-    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
-        self.send_discover()
 
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
-            incoming = self.recv(timeout_seconds=timeout_seconds)
-            if incoming is None:
+            try:
+                data, addr = self._sock.recvfrom(4096)
+            except socket.timeout:
                 continue
-            data, addr = incoming
 
             message = _safe_json_parse(data)
             if not message:
@@ -185,10 +136,9 @@ class ReceiverDiscoveryClient:
             return SenderOffer(
                 sender_ip=addr[0],
                 sender_name=str(message.get("sender_name", "unknown")),
-                sample_rate=int(message.get("sample_rate", self._config.sample_rate)),
-                bit_depth=int(message.get("bit_depth", self._config.bit_depth)),
-                channels=int(message.get("channels", self._config.channels)),
-                frame_samples=int(message.get("frame_samples", self._config.frame_samples)),
+                sample_rate=int(message.get("sample_rate", 0)),
+                bit_depth=int(message.get("bit_depth", 0)),
+                channels=int(message.get("channels", 0)),
             )
 
         return None

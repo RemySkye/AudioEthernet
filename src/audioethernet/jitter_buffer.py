@@ -3,28 +3,38 @@ from __future__ import annotations
 import threading
 from collections import deque
 
-from .config import PROFILE_SETTINGS
-
 
 class AdaptiveJitterBuffer:
     def __init__(
         self,
         *,
         frame_bytes: int,
-        profile: str,
+        latency_profile: str,
         max_frames: int = 100,
     ) -> None:
         self._frame_bytes = frame_bytes
         self._buffer: deque[bytes] = deque()
         self._lock = threading.Lock()
-        settings = PROFILE_SETTINGS.get(profile)
-        if settings is None:
-            raise ValueError(f"profile must be one of {tuple(PROFILE_SETTINGS)}")
-
-        self._max_frames = max(1, max_frames, settings.jitter_target_frames + settings.jitter_drop_margin)
-        self._target_frames = settings.jitter_target_frames
-        self._drop_margin = settings.jitter_drop_margin
+        self._max_frames = max_frames
+        self._target_frames = self._initial_target_for_profile(latency_profile)
+        self._drop_margin = self._drop_margin_for_profile(latency_profile)
         self._primed = False
+
+    @staticmethod
+    def _initial_target_for_profile(latency_profile: str) -> int:
+        if latency_profile == "low":
+            return 5
+        if latency_profile == "stable":
+            return 10
+        return 5
+
+    @staticmethod
+    def _drop_margin_for_profile(latency_profile: str) -> int:
+        if latency_profile == "low":
+            return 8
+        if latency_profile == "stable":
+            return 14
+        return 10
 
     def reset(self) -> None:
         with self._lock:

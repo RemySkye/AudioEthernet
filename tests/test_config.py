@@ -4,14 +4,17 @@ from audioethernet.config import StreamConfig
 def test_default_audio_format_values() -> None:
     config = StreamConfig(role="sender")
     assert config.profile == "safe"
+    assert config.latency_profile == "balanced"
     assert config.bit_depth == 16
     assert config.sample_rate == 48000
     assert config.channels == 2
     assert config.port == 50482
-    assert config.frame_ms == 20
-    assert config.frame_samples == 960
-    assert config.capture_processing == "processed"
-    assert config.queue_max_frames == 512
+    assert config.control_port == 50481
+    assert config.data_port == 50482
+    assert config.frame_ms == 5
+    assert config.frame_samples == 240
+    assert config.capture_processing == "unprocessed"
+    assert config.queue_max_frames == 256
 
 
 def test_24_bit_uses_int32_container() -> None:
@@ -27,7 +30,7 @@ def test_32_bit_uses_int32_container() -> None:
 
 
 def test_44100_hz_uses_whole_samples() -> None:
-    config = StreamConfig(role="sender", sample_rate=44100)
+    config = StreamConfig(role="sender", sample_rate=44100, frame_ms=20)
     assert config.frame_samples == 882
 
 

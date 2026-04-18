@@ -1,17 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import socket
 import sys
 
-from .config import (
-    SUPPORTED_BIT_DEPTHS,
-    SUPPORTED_CAPTURE_PROCESSING,
-    SUPPORTED_FRAME_MS,
-    SUPPORTED_PROFILES,
-    SUPPORTED_SAMPLE_RATES,
-    StreamConfig,
-)
+from .config import StreamConfig
 from .logging_setup import configure_logging
 from .receiver_app import ReceiverApp
 from .sender_app import SenderApp
@@ -20,7 +12,7 @@ from .sender_app import SenderApp
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="audioethernet",
-        description="LAN audio sender/receiver over a single UDP port for Windows 11",
+        description="LAN audio sender/receiver for Windows 11",
     )
 
     role = parser.add_mutually_exclusive_group(required=True)
@@ -31,35 +23,40 @@ def build_parser() -> argparse.ArgumentParser:
         "--bit-depth",
         type=int,
         default=16,
-        choices=SUPPORTED_BIT_DEPTHS,
+        choices=[16, 24, 32],
         help="Audio bit depth (default: 16)",
     )
     parser.add_argument(
         "--sample-rate",
         type=int,
         default=48000,
-        choices=SUPPORTED_SAMPLE_RATES,
+        choices=[44100, 48000, 96000],
         help="Audio sample rate in Hz (default: 48000)",
     )
     parser.add_argument(
         "--frame-ms",
         type=int,
-        default=None,
-        choices=SUPPORTED_FRAME_MS,
-        help="Frame duration override in milliseconds (defaults from profile)",
+        default=5,
+        choices=[5, 10, 20],
+        help="Frame duration in milliseconds (default: 5)",
     )
     parser.add_argument(
-        "-p",
-        "--profile",
-        default="safe",
-        choices=SUPPORTED_PROFILES,
-        help="Latency/buffering profile (default: safe)",
+        "--latency-profile",
+        default="balanced",
+        choices=["low", "balanced", "stable"],
+        help="Jitter target profile for receiver (default: balanced)",
     )
     parser.add_argument(
-        "--port",
+        "--control-port",
+        type=int,
+        default=50481,
+        help="Control and discovery UDP port",
+    )
+    parser.add_argument(
+        "--data-port",
         type=int,
         default=50482,
-        help="Single UDP port used for discovery and audio (default: 50482)",
+        help="Receiver data UDP port",
     )
     parser.add_argument(
         "--name",
@@ -75,29 +72,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--queue-max-frames",
         type=int,
-        default=None,
-        help="Maximum queued frames for sender capture queue (defaults from profile)",
+        default=256,
+        help="Maximum queued frames for sender capture queue",
     )
     parser.add_argument(
         "--receiver-timeout-seconds",
         type=float,
-        default=None,
-        help="Receiver stream timeout before rediscovery (defaults from profile)",
+        default=3.0,
+        help="Receiver stream timeout before rediscovery",
     )
     parser.add_argument(
         "--sender-peer-timeout-seconds",
         type=float,
-        default=None,
-        help="Sender timeout to drop inactive receiver targets (defaults from profile)",
+        default=8.0,
+        help="Sender timeout to drop inactive receiver targets",
     )
     parser.add_argument(
         "--capture-processing",
-        default="processed",
-        choices=SUPPORTED_CAPTURE_PROCESSING,
+        default="unprocessed",
+        choices=["unprocessed", "processed"],
         help=(
-            "Sender capture mode (default: processed). "
+            "Sender capture mode (default: unprocessed). "
             "Unprocessed uses Stereo Mix / WDM-KS monitor capture and requires "
-            "the sender device to be unmuted so the mix contains audio."
+            "the sender device to be unmuted so the mix contains audio. "
+            "Use processed to include endpoint effects such as APO processing."
         ),
     )
 
@@ -113,13 +111,14 @@ def main(argv: list[str] | None = None) -> int:
 
     config = StreamConfig(
         role=role,
-        profile=args.profile,
         bit_depth=args.bit_depth,
         sample_rate=args.sample_rate,
         frame_ms=args.frame_ms,
         capture_processing=args.capture_processing,
-        port=args.port,
-        endpoint_name=endpoint_name or socket.gethostname(),
+        control_port=args.control_port,
+        data_port=args.data_port,
+        endpoint_name=endpoint_name or StreamConfig(role=role).endpoint_name,
+        latency_profile=args.latency_profile,
         receiver_stream_timeout_seconds=args.receiver_timeout_seconds,
         sender_peer_timeout_seconds=args.sender_peer_timeout_seconds,
         queue_max_frames=args.queue_max_frames,

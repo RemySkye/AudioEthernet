@@ -12,6 +12,7 @@ from .config import StreamConfig
 from .discovery import SenderDiscoveryService
 from .metrics import RuntimeMetrics
 from .protocol import pack_audio_packet, pack_heartbeat
+from .transport_udp import UDPSender
 
 
 class SenderApp:
@@ -28,6 +29,7 @@ class SenderApp:
         self._targets: Dict[Tuple[str, int], float] = {}
         self._targets_lock = threading.Lock()
 
+        self._sender = UDPSender()
         self._capture = LoopbackCapture(
             config=self._config,
             on_frame=self._on_audio_frame,
@@ -49,14 +51,14 @@ class SenderApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Sender starting with %s-bit %s Hz, profile=%s, frame %s ms, capture=%s",
+            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s",
             self._config.bit_depth,
             self._config.sample_rate,
-            self._config.profile,
             self._config.frame_ms,
             self._config.capture_processing,
         )
 
+        self._discovery.start()
         self._capture.start()
 
         self._send_thread = threading.Thread(
@@ -92,6 +94,7 @@ class SenderApp:
         if self._metrics_thread and self._metrics_thread.is_alive():
             self._metrics_thread.join(timeout=2.0)
 
+        self._sender.close()
         self._logger.info("Sender stopped")
 
     def _on_receiver_discover(self, receiver_ip: str, receiver_port: int) -> None:
@@ -124,7 +127,21 @@ class SenderApp:
             self._metrics.inc_dropped_frames(1)
 
     def _active_targets(self) -> list[tuple[str, int]]:
-        return [("255.255.255.255", self._config.port)]
+        now = time.monotonic()
+        timeout = self._config.sender_peer_timeout_seconds
+        active: list[tuple[str, int]] = []
+        stale: list[tuple[str, int]] = []
+
+        with self._targets_lock:
+            for target, last_seen in self._targets.items():
+                if (now - last_seen) <= timeout:
+                    active.append(target)
+                else:
+                    stale.append(target)
+            for target in stale:
+                del self._targets[target]
+
+        return active
 
     def _send_loop(self) -> None:
         last_heartbeat = 0.0
@@ -149,7 +166,7 @@ class SenderApp:
                         timestamp_samples=self._timestamp_samples,
                     )
                     for target in active_targets:
-                        self._discovery.send(heartbeat, target)
+                        self._sender.send(heartbeat, target)
                         self._metrics.inc_packets_sent(1)
                     self._sequence = (self._sequence + 1) & 0xFFFFFFFF
                     last_heartbeat = now
@@ -166,7 +183,7 @@ class SenderApp:
             )
 
             for target in active_targets:
-                self._discovery.send(packet, target)
+                self._sender.send(packet, target)
                 self._metrics.inc_packets_sent(1)
 
             self._sequence = (self._sequence + 1) & 0xFFFFFFFF

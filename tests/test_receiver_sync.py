@@ -27,11 +27,16 @@ class FakeDiscovery:
     def discover_once(self, timeout_seconds: float = 1.0):
         return None
 
-    def send_discover(self) -> None:
-        pass
 
-    def recv(self, timeout_seconds: float = 0.5):
+class FakeUDPReceiver:
+    def __init__(self, bind_port: int) -> None:
+        self.bind_port = bind_port
+
+    def recv(self, timeout: float = 0.5):
         return None
+
+    def close(self) -> None:
+        pass
 
 
 class FakePlayback:
@@ -59,9 +64,9 @@ class FakePlayback:
 class FakeJitterBuffer:
     instances: list["FakeJitterBuffer"] = []
 
-    def __init__(self, *, frame_bytes: int, profile: str, max_frames: int) -> None:
+    def __init__(self, *, frame_bytes: int, latency_profile: str, max_frames: int) -> None:
         self.frame_bytes = frame_bytes
-        self.profile = profile
+        self.latency_profile = latency_profile
         self.max_frames = max_frames
         self.reset_calls = 0
         FakeJitterBuffer.instances.append(self)
@@ -84,10 +89,11 @@ def test_receiver_applies_sender_stream_format(monkeypatch) -> None:
     FakeJitterBuffer.instances.clear()
 
     monkeypatch.setattr(receiver_app, "ReceiverDiscoveryClient", FakeDiscovery)
+    monkeypatch.setattr(receiver_app, "UDPReceiver", FakeUDPReceiver)
     monkeypatch.setattr(receiver_app, "AudioPlayback", FakePlayback)
     monkeypatch.setattr(receiver_app, "AdaptiveJitterBuffer", FakeJitterBuffer)
 
-    config = StreamConfig(role="receiver")
+    config = StreamConfig(role="receiver", profile="low", latency_profile="low")
     app = receiver_app.ReceiverApp(config, DummyLogger())
 
     initial_buffer_count = len(FakeJitterBuffer.instances)
@@ -103,7 +109,7 @@ def test_receiver_applies_sender_stream_format(monkeypatch) -> None:
     assert app._stream_format == sender_format
     assert len(FakeJitterBuffer.instances) == initial_buffer_count + 1
     assert FakeJitterBuffer.instances[-1].frame_bytes == sender_format.frame_bytes
-    assert FakeJitterBuffer.instances[-1].profile == "safe"
+    assert FakeJitterBuffer.instances[-1].latency_profile == "low"
     assert FakePlayback.instances[-1].formats == [sender_format]
 
     app._apply_stream_format(sender_format)
