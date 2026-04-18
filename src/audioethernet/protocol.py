@@ -16,7 +16,7 @@ class ProtocolError(Exception):
     pass
 
 
-@dataclass(slots=True)
+@dataclass
 class Packet:
     flags: int
     channels: int

@@ -4,7 +4,7 @@ import threading
 from dataclasses import dataclass
 
 
-@dataclass(slots=True)
+@dataclass
 class MetricsSnapshot:
     dropped_frames: int
     underruns: int

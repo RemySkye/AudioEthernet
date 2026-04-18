@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import List, Optional
 
 from .config import StreamConfig
 from .logging_setup import configure_logging
@@ -12,7 +13,7 @@ from .sender_app import SenderApp
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="audioethernet",
-        description="LAN audio sender/receiver for Windows 11",
+        description="LAN audio sender/receiver for Windows 10/11",
     )
 
     role = parser.add_mutually_exclusive_group(required=True)
@@ -90,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -125,6 +126,10 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         logger.info("Shutdown requested by user")
         app.stop()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("Application failed: %s", exc)
+        app.stop()
+        return 1
 
     return 0
 

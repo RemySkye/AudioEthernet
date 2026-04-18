@@ -91,7 +91,6 @@ class LoopbackCapture:
         self._thread = None
 
     def _capture_loop(self) -> None:
-        self._set_active_processing_mode("processed")
         self._capture_loop_processed()
 
     def _capture_loop_processed(self) -> None:

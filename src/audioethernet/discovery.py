@@ -14,7 +14,7 @@ OFFER_MESSAGE = "offer"
 PROTOCOL_TAG = "audioethernet-v1"
 
 
-@dataclass(slots=True)
+@dataclass
 class SenderOffer:
     sender_ip: str
     sender_name: str

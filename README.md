@@ -1,6 +1,11 @@
 # AudioEthernet
 
-AudioEthernet streams system audio over LAN between Windows 11 machines.
+AudioEthernet streams system audio over LAN between Windows 10/11 machines.
+
+## Compatibility
+
+- Python 3.9+
+- Windows 10 and Windows 11
 
 ## Install From GitHub
 

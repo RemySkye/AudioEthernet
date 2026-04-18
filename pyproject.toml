@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "audioethernet"
 version = "0.1.1"
-description = "Low-latency LAN audio bridge for Windows 11"
+description = "Low-latency LAN audio bridge for Windows 10/11"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
   {name = "AudioEthernet Contributors"}
@@ -15,8 +15,12 @@ authors = [
 keywords = ["audio", "ethernet", "wasapi", "lan", "streaming"]
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
-  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: Microsoft :: Windows",
   "Topic :: Multimedia :: Sound/Audio"
 ]
 dependencies = [

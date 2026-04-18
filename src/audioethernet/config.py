@@ -10,7 +10,7 @@ SUPPORTED_LATENCY_PROFILES = ("low", "balanced", "stable")
 SUPPORTED_CAPTURE_PROCESSING = ("processed",)
 
 
-@dataclass(slots=True)
+@dataclass
 class StreamConfig:
     role: str
     bit_depth: int = 16
@@ -74,7 +74,7 @@ class StreamConfig:
         return self.frame_samples * self.channels * self.bytes_per_sample
 
 
-@dataclass(slots=True)
+@dataclass
 class SenderIdentity:
     name: str
     sample_rate: int
