@@ -16,6 +16,24 @@ class ProtocolError(Exception):
     pass
 
 
+@dataclass(slots=True, frozen=True)
+class StreamFormat:
+    channels: int
+    bit_depth: int
+    sample_rate: int
+    frame_samples: int
+
+    @property
+    def bytes_per_sample(self) -> int:
+        if self.bit_depth == 16:
+            return 2
+        return 4
+
+    @property
+    def frame_bytes(self) -> int:
+        return self.frame_samples * self.channels * self.bytes_per_sample
+
+
 @dataclass(slots=True)
 class Packet:
     flags: int
@@ -26,6 +44,19 @@ class Packet:
     sequence: int
     timestamp_samples: int
     payload: bytes
+
+    @property
+    def stream_format(self) -> StreamFormat:
+        return StreamFormat(
+            channels=self.channels,
+            bit_depth=self.bit_depth,
+            sample_rate=self.sample_rate,
+            frame_samples=self.frame_samples,
+        )
+
+    @property
+    def frame_bytes(self) -> int:
+        return len(self.payload)
 
 
 def pack_audio_packet(

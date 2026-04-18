@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from .config import StreamConfig
+from .protocol import StreamFormat
 
 DISCOVER_MESSAGE = "discover"
 OFFER_MESSAGE = "offer"
@@ -21,6 +22,16 @@ class SenderOffer:
     sample_rate: int
     bit_depth: int
     channels: int
+    frame_samples: int
+
+    @property
+    def stream_format(self) -> StreamFormat:
+        return StreamFormat(
+            channels=self.channels,
+            bit_depth=self.bit_depth,
+            sample_rate=self.sample_rate,
+            frame_samples=self.frame_samples,
+        )
 
 
 def _safe_json_parse(payload: bytes) -> Optional[dict]:
@@ -88,6 +99,7 @@ class SenderDiscoveryService:
                 "sample_rate": self._config.sample_rate,
                 "bit_depth": self._config.bit_depth,
                 "channels": self._config.channels,
+                "frame_samples": self._config.frame_samples,
                 "ts": time.time(),
             }
             self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
@@ -136,9 +148,10 @@ class ReceiverDiscoveryClient:
             return SenderOffer(
                 sender_ip=addr[0],
                 sender_name=str(message.get("sender_name", "unknown")),
-                sample_rate=int(message.get("sample_rate", 0)),
-                bit_depth=int(message.get("bit_depth", 0)),
-                channels=int(message.get("channels", 0)),
+                sample_rate=int(message.get("sample_rate", self._config.sample_rate)),
+                bit_depth=int(message.get("bit_depth", self._config.bit_depth)),
+                channels=int(message.get("channels", self._config.channels)),
+                frame_samples=int(message.get("frame_samples", self._config.frame_samples)),
             )
 
         return None

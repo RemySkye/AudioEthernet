@@ -51,9 +51,10 @@ class SenderApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s",
+            "Sender starting with %s-bit %s Hz, profile=%s, frame %s ms, capture=%s",
             self._config.bit_depth,
             self._config.sample_rate,
+            self._config.profile,
             self._config.frame_ms,
             self._config.capture_processing,
         )

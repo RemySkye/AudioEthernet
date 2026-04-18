@@ -1,50 +1,60 @@
 # AudioEthernet
 
-AudioEthernet streams system audio over LAN between Windows 11 machines.
+AudioEthernet streams system audio over LAN between Windows PCs. It is tuned for low CPU use, safe defaults, and automatic receiver format sync.
 
-## Install From GitHub
+## Install
 
 ```bash
 pip install "git+https://github.com/<your-username>/AudioEthernet.git"
 ```
 
-After install, the `audioethernet` command is available in PowerShell and CMD.
+After install, run `audioethernet` from PowerShell or CMD.
 
 ## Quick Start
 
-On receiver PC:
+On the receiver PC:
 
 ```bash
 audioethernet -r
 ```
 
-On sender PC:
+On the sender PC:
 
 ```bash
 audioethernet -s
 ```
 
-Keep both terminal windows open while streaming.
+Receiver playback follows the sender's active stream format automatically, so the receiver does not need to match the sender manually.
 
-## Defaults
+## Profiles
 
-- Stereo
-- 16-bit
-- 48000 Hz
-- 5 ms frame size
+- `-p safe` is the default. It uses larger buffers and more delay margin to stay stable.
+- `-p low` reduces playback delay while staying inside a safer buffer range.
 
-## Useful Options
+Examples:
 
 ```bash
-audioethernet -s --bit-depth 24 --sample-rate 48000
-audioethernet -r --bit-depth 24 --sample-rate 48000
-audioethernet -s --latency-profile low --frame-ms 5
-audioethernet -s --capture-processing processed
+audioethernet -s -p safe
+audioethernet -s -p low --sample-rate 96000 --bit-depth 24
+audioethernet -r -p low
 ```
 
-## Capture Processing Modes
+## Default Behavior
 
-- `--capture-processing unprocessed` (default): tries to capture without endpoint enhancement chains when a suitable monitor source is available.
-- `--capture-processing processed`: captures regular loopback including endpoint effects.
+- Sender capture defaults to processed loopback.
+- Receiver defaults to the safe profile.
+- Stereo is used by default.
+- The default sender format is 16-bit, 48000 Hz.
+- The receiver tries to allow its UDP port through Windows Firewall when it starts on Windows with administrator privileges.
 
-If unprocessed monitor capture is not usable on a device, sender falls back to processed loopback automatically.
+## Supported Formats
+
+- Sample rates: 32000, 44100, 48000, 88200, 96000 Hz
+- Bit depths: 16, 24, 32-bit
+
+## Capture Modes
+
+- `--capture-processing processed` is the default and captures regular Windows loopback audio.
+- `--capture-processing unprocessed` uses Stereo Mix or a similar WDM-KS monitor source. The sender device must be unmuted so the monitor mix actually contains audio.
+
+If unprocessed capture is unavailable or silent, the sender can fall back to processed loopback automatically.

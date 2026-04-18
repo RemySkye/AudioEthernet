@@ -28,6 +28,8 @@ def test_audio_packet_round_trip() -> None:
     assert packet.sequence == 42
     assert packet.timestamp_samples == 1337
     assert packet.payload == payload
+    assert packet.frame_bytes == len(payload)
+    assert packet.stream_format.frame_bytes == 480 * 2 * 2
 
 
 def test_heartbeat_packet_has_empty_payload() -> None:
@@ -43,3 +45,22 @@ def test_heartbeat_packet_has_empty_payload() -> None:
     packet = unpack_packet(packet_bytes)
     assert packet.flags == FLAG_HEARTBEAT
     assert packet.payload == b""
+
+
+def test_stream_format_handles_32_bit_payload_sizes() -> None:
+    packet_bytes = pack_audio_packet(
+        channels=2,
+        bit_depth=32,
+        sample_rate=96000,
+        frame_samples=960,
+        sequence=9,
+        timestamp_samples=777,
+        payload=b"x" * (960 * 2 * 4),
+    )
+
+    packet = unpack_packet(packet_bytes)
+    assert packet.stream_format.channels == 2
+    assert packet.stream_format.bit_depth == 32
+    assert packet.stream_format.sample_rate == 96000
+    assert packet.stream_format.frame_samples == 960
+    assert packet.stream_format.frame_bytes == 960 * 2 * 4

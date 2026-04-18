@@ -139,7 +139,7 @@ class LoopbackCapture:
             if self._stop_event.is_set():
                 raise sd.CallbackStop()
 
-            pending_bytes.extend(bytes(indata))
+            pending_bytes.extend(indata)
             while len(pending_bytes) >= frame_bytes:
                 frame = bytes(pending_bytes[:frame_bytes])
                 del pending_bytes[:frame_bytes]
@@ -163,7 +163,7 @@ class LoopbackCapture:
             blocksize=0,
             dtype=self._config.sounddevice_dtype,
             callback=callback,
-            latency="low",
+            latency=self._config.profile_settings.capture_latency_seconds,
         ):
             self._started_event.set()
             while not self._stop_event.wait(0.2):
@@ -278,8 +278,12 @@ class LoopbackCapture:
     def _float_to_pcm_bytes(self, block: np.ndarray) -> bytes:
         clipped = np.clip(block, -1.0, 1.0)
         if self._config.bit_depth == 16:
-            pcm = (clipped * 32767.0).astype(np.int16)
+            pcm = np.rint(clipped * 32767.0).astype(np.int16)
             return pcm.tobytes(order="C")
 
-        pcm = (clipped * 8388607.0).astype(np.int32)
+        if self._config.bit_depth == 24:
+            pcm = np.rint(clipped * 8388607.0).astype(np.int32)
+            return pcm.tobytes(order="C")
+
+        pcm = np.rint(clipped * 2147483647.0).astype(np.int32)
         return pcm.tobytes(order="C")

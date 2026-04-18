@@ -7,10 +7,17 @@ import psutil
 
 from .audio_playback import AudioPlayback
 from .config import StreamConfig
-from .discovery import ReceiverDiscoveryClient, SenderOffer
+from .firewall import ensure_receiver_firewall_rule
+from .discovery import ReceiverDiscoveryClient
 from .jitter_buffer import AdaptiveJitterBuffer
 from .metrics import RuntimeMetrics
-from .protocol import FLAG_AUDIO, FLAG_HEARTBEAT, ProtocolError, unpack_packet
+from .protocol import (
+    FLAG_AUDIO,
+    FLAG_HEARTBEAT,
+    ProtocolError,
+    StreamFormat,
+    unpack_packet,
+)
 from .transport_udp import UDPReceiver
 
 
@@ -24,9 +31,17 @@ class ReceiverApp:
         self._discovery = ReceiverDiscoveryClient(self._config)
         self._udp_receiver = UDPReceiver(self._config.data_port)
 
+        self._stream_format = StreamFormat(
+            channels=self._config.channels,
+            bit_depth=self._config.bit_depth,
+            sample_rate=self._config.sample_rate,
+            frame_samples=self._config.frame_samples,
+        )
+
         self._jitter = AdaptiveJitterBuffer(
-            frame_bytes=self._config.frame_bytes,
-            latency_profile=self._config.latency_profile,
+            frame_bytes=self._stream_format.frame_bytes,
+            profile=self._config.profile,
+            max_frames=self._config.queue_max_frames,
         )
 
         self._playback = AudioPlayback(
@@ -48,12 +63,14 @@ class ReceiverApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Receiver starting with %s-bit %s Hz, frame %s ms",
+            "Receiver starting with %s-bit %s Hz, profile=%s, frame %s ms",
             self._config.bit_depth,
             self._config.sample_rate,
+            self._config.profile,
             self._config.frame_ms,
         )
 
+        ensure_receiver_firewall_rule(self._config.data_port, self._logger)
         self._playback.start()
 
         last_discovery_refresh = 0.0
@@ -78,19 +95,25 @@ class ReceiverApp:
                     offer = self._discovery.discover_once(
                         timeout_seconds=self._config.reconnect_seconds
                     )
-                    if offer and self._offer_matches_local_format(offer):
+                    if offer:
+                        self._apply_stream_format(offer.stream_format)
                         self._set_connected(offer.sender_ip)
                         self._logger.info(
-                            "Connected to sender %s (%s)",
+                            "Connected to sender %s (%s) at %s Hz, %s-bit, frame %s samples",
                             offer.sender_name,
                             offer.sender_ip,
+                            offer.sample_rate,
+                            offer.bit_depth,
+                            offer.frame_samples,
                         )
                         last_discovery_refresh = time.monotonic()
                 else:
                     now = time.monotonic()
                     if now - last_discovery_refresh >= self._config.heartbeat_seconds:
                         # Refresh sender-side peer liveness so stream is not dropped.
-                        self._discovery.discover_once(timeout_seconds=0.1)
+                        offer = self._discovery.discover_once(timeout_seconds=0.1)
+                        if offer:
+                            self._apply_stream_format(offer.stream_format)
                         last_discovery_refresh = now
 
                     if self._stream_timed_out():
@@ -116,29 +139,26 @@ class ReceiverApp:
         self._udp_receiver.close()
         self._logger.info("Receiver stopped")
 
-    def _offer_matches_local_format(self, offer: SenderOffer) -> bool:
-        if offer.channels != self._config.channels:
-            self._logger.warning(
-                "Sender channel mismatch. sender=%s local=%s",
-                offer.channels,
-                self._config.channels,
+    def _apply_stream_format(self, stream_format: StreamFormat) -> None:
+        with self._state_lock:
+            if stream_format == self._stream_format:
+                return
+
+            self._stream_format = stream_format
+            self._jitter = AdaptiveJitterBuffer(
+                frame_bytes=stream_format.frame_bytes,
+                profile=self._config.profile,
+                max_frames=self._config.queue_max_frames,
             )
-            return False
-        if offer.sample_rate != self._config.sample_rate:
-            self._logger.warning(
-                "Sender sample rate mismatch. sender=%s local=%s",
-                offer.sample_rate,
-                self._config.sample_rate,
-            )
-            return False
-        if offer.bit_depth != self._config.bit_depth:
-            self._logger.warning(
-                "Sender bit depth mismatch. sender=%s local=%s",
-                offer.bit_depth,
-                self._config.bit_depth,
-            )
-            return False
-        return True
+
+        self._playback.set_stream_format(stream_format)
+        self._logger.info(
+            "Receiver synced to sender stream %s Hz, %s-bit, %s channels, frame %s samples",
+            stream_format.sample_rate,
+            stream_format.bit_depth,
+            stream_format.channels,
+            stream_format.frame_samples,
+        )
 
     def _set_connected(self, sender_ip: str) -> None:
         with self._state_lock:
@@ -193,6 +213,9 @@ class ReceiverApp:
             self._metrics.inc_packets_received(1)
             self._mark_packet()
 
+            packet_format = packet.stream_format
+            self._apply_stream_format(packet_format)
+
             if not self._is_connected():
                 self._set_connected(addr[0])
                 self._logger.info("Stream detected from sender %s", addr[0])
@@ -201,13 +224,6 @@ class ReceiverApp:
                 continue
 
             if packet.flags & FLAG_AUDIO:
-                if packet.sample_rate != self._config.sample_rate:
-                    continue
-                if packet.bit_depth != self._config.bit_depth:
-                    continue
-                if packet.channels != self._config.channels:
-                    continue
-
                 dropped = self._jitter.push(packet.payload)
                 if dropped:
                     self._metrics.inc_dropped_frames(dropped)
