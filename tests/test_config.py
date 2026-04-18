@@ -7,6 +7,7 @@ def test_default_audio_format_values() -> None:
     assert config.bit_depth == 16
     assert config.sample_rate == 48000
     assert config.channels == 2
+    assert config.port == 50482
     assert config.frame_ms == 20
     assert config.frame_samples == 960
     assert config.capture_processing == "processed"
@@ -52,6 +53,16 @@ def test_invalid_capture_processing_raises() -> None:
 
 def test_invalid_profile_raises() -> None:
     config = StreamConfig(role="sender", profile="balanced")
+    try:
+        config.validate()
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised
+
+
+def test_invalid_port_raises() -> None:
+    config = StreamConfig(role="sender", port=0)
     try:
         config.validate()
         raised = False

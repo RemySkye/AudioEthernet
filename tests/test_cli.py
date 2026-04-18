@@ -10,6 +10,7 @@ def test_sender_defaults_to_safe_profile_and_processed_capture() -> None:
     assert args.bit_depth == 16
     assert args.sample_rate == 48000
     assert args.frame_ms is None
+    assert args.port == 50482
 
 
 def test_help_mentions_profile_and_unprocessed_mode() -> None:
@@ -18,5 +19,8 @@ def test_help_mentions_profile_and_unprocessed_mode() -> None:
     assert "--profile" in help_text
     assert "-p" in help_text
     assert "--latency-profile" not in help_text
+    assert "--port" in help_text
+    assert "--control-port" not in help_text
+    assert "--data-port" not in help_text
     assert "Stereo Mix" in help_text
     assert "unmuted" in help_text

@@ -58,7 +58,7 @@ class SenderDiscoveryService:
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind(("", self._config.control_port))
+        self._sock.bind(("", self._config.port))
         self._sock.settimeout(0.5)
 
     def start(self) -> None:
@@ -73,7 +73,14 @@ class SenderDiscoveryService:
 
     def send(self, payload: bytes, target: tuple[str, int]) -> None:
         with self._send_lock:
-            self._sock.sendto(payload, target)
+            try:
+                self._sock.sendto(payload, target)
+            except ConnectionResetError:
+                return
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 10054:
+                    return
+                raise
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -96,7 +103,9 @@ class SenderDiscoveryService:
             if message.get("type") != DISCOVER_MESSAGE:
                 continue
 
-            receiver_port = int(message.get("data_port", 0))
+            receiver_port = int(message.get("port", 0))
+            if not receiver_port:
+                receiver_port = int(message.get("data_port", 0))
             if not receiver_port:
                 continue
 
@@ -111,6 +120,7 @@ class SenderDiscoveryService:
                 "bit_depth": self._config.bit_depth,
                 "channels": self._config.channels,
                 "frame_samples": self._config.frame_samples,
+                "port": self._config.port,
                 "ts": time.time(),
             }
             self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
@@ -122,12 +132,8 @@ class ReceiverDiscoveryClient:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind(("", 0))
+        self._sock.bind(("", self._config.port))
         self._sock.settimeout(0.4)
-
-    @property
-    def local_port(self) -> int:
-        return self._sock.getsockname()[1]
 
     def close(self) -> None:
         self._sock.close()
@@ -137,12 +143,12 @@ class ReceiverDiscoveryClient:
             "tag": PROTOCOL_TAG,
             "type": DISCOVER_MESSAGE,
             "receiver_name": self._config.endpoint_name,
-            "data_port": self._config.data_port,
+            "port": self._config.port,
             "ts": time.time(),
         }
         self._sock.sendto(
             json.dumps(discover).encode("utf-8"),
-            ("255.255.255.255", self._config.control_port),
+            ("255.255.255.255", self._config.port),
         )
 
     def recv(self, timeout_seconds: float = 0.5) -> Optional[tuple[bytes, tuple[str, int]]]:

@@ -20,7 +20,6 @@ class DummyLogger:
 class FakeDiscovery:
     def __init__(self, config) -> None:
         self.config = config
-        self.local_port = 62000
 
     def close(self) -> None:
         pass
@@ -33,9 +32,6 @@ class FakeDiscovery:
 
     def recv(self, timeout_seconds: float = 0.5):
         return None
-
-    def close(self) -> None:
-        pass
 
 
 class FakePlayback:

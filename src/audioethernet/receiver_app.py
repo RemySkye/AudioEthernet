@@ -28,7 +28,6 @@ class ReceiverApp:
         self._stop_event = threading.Event()
 
         self._discovery = ReceiverDiscoveryClient(self._config)
-        self._config.data_port = self._discovery.local_port
 
         self._stream_format = StreamFormat(
             channels=self._config.channels,
@@ -62,15 +61,15 @@ class ReceiverApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Receiver starting with %s-bit %s Hz, profile=%s, frame %s ms, data port %s",
+            "Receiver starting with %s-bit %s Hz, profile=%s, frame %s ms, port %s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.profile,
             self._config.frame_ms,
-            self._config.data_port,
+            self._config.port,
         )
 
-        ensure_receiver_firewall_rule(self._config.data_port, self._logger)
+        ensure_receiver_firewall_rule(self._config.port, self._logger)
         self._playback.start()
 
         self._network_thread = threading.Thread(

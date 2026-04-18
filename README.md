@@ -25,6 +25,7 @@ audioethernet -s
 ```
 
 Receiver playback follows the sender's active stream format automatically, so the receiver does not need to match the sender manually.
+Both roles use the same UDP port, so only one port needs to be allowed on the machine.
 
 ## Profiles
 
@@ -45,7 +46,8 @@ audioethernet -r -p low
 - Receiver defaults to the safe profile.
 - Stereo is used by default.
 - The default sender format is 16-bit, 48000 Hz.
-- The receiver auto-selects its UDP audio port by default and tries to allow that port through Windows Firewall when it starts on Windows with administrator privileges.
+- The sender and receiver both use UDP port 50482 by default.
+- The receiver tries to allow that single UDP port through Windows Firewall when it starts on Windows with administrator privileges.
 
 ## Supported Formats
 

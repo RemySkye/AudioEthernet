@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import sys
 import socket
+import sys
 
 from .config import (
     SUPPORTED_BIT_DEPTHS,
@@ -20,7 +20,7 @@ from .sender_app import SenderApp
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="audioethernet",
-        description="LAN audio sender/receiver for Windows 11",
+        description="LAN audio sender/receiver over a single UDP port for Windows 11",
     )
 
     role = parser.add_mutually_exclusive_group(required=True)
@@ -56,16 +56,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Latency/buffering profile (default: safe)",
     )
     parser.add_argument(
-        "--control-port",
+        "--port",
         type=int,
-        default=50481,
-        help="Control and discovery UDP port",
-    )
-    parser.add_argument(
-        "--data-port",
-        type=int,
-        default=None,
-        help="Receiver data UDP port (default: auto on receiver)",
+        default=50482,
+        help="Single UDP port used for discovery and audio (default: 50482)",
     )
     parser.add_argument(
         "--name",
@@ -124,8 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         sample_rate=args.sample_rate,
         frame_ms=args.frame_ms,
         capture_processing=args.capture_processing,
-        control_port=args.control_port,
-        data_port=args.data_port if args.data_port is not None else 0,
+        port=args.port,
         endpoint_name=endpoint_name or socket.gethostname(),
         receiver_stream_timeout_seconds=args.receiver_timeout_seconds,
         sender_peer_timeout_seconds=args.sender_peer_timeout_seconds,
