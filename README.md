@@ -62,3 +62,9 @@ Quick fixes:
 - In Windows Sound Recording, enable and unmute Stereo Mix (or equivalent monitor input).
 - Keep speaker endpoint unmuted and set non-zero volume while testing.
 - If your driver blocks monitor capture, use `--capture-processing processed`.
+
+Important limitation (Windows drivers):
+
+- Many unprocessed monitor inputs (Stereo Mix / What U Hear style sources) are hardware/driver dependent and can be gated by mixer state.
+- In this project's current pure-Python backend, truly raw render-endpoint loopback with guaranteed mute-independent behavior is not universally available.
+- The reliable mute-independent path is `--capture-processing processed` (WASAPI loopback style capture).

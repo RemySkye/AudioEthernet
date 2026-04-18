@@ -17,6 +17,7 @@ AudioFrameCallback = Callable[[bytes, int], None]
 UNPROCESSED_STARTUP_SILENCE_SECONDS = 8.0
 UNPROCESSED_SILENCE_INT16_THRESHOLD = 64
 UNPROCESSED_SILENCE_INT32_THRESHOLD = 4096
+PROCESSED_RECORDER_BLOCK_MULTIPLIER = 4
 
 UNPROCESSED_NAME_HINTS = (
     "stereo mix",
@@ -118,7 +119,8 @@ class LoopbackCapture:
                     return
                 self._logger.warning(
                     "Unprocessed capture could not stay active (%s). "
-                    "This is usually driver or mixer gating on monitor inputs. "
+                    "This is usually driver or mixer gating on monitor inputs "
+                    "(for many Stereo Mix paths this depends on speaker/mixer state). "
                     "Falling back to processed loopback for reliable capture.",
                     exc,
                 )
@@ -143,18 +145,27 @@ class LoopbackCapture:
             ),
         )
 
-        pending_bytes = bytearray()
         startup_silent_frames = 0
         startup_non_silent_seen = False
+        pending_bytes = bytearray()
+        overflow_count = 0
         fallback_to_processed = False
 
         def callback(indata, _frames, _time_info, status) -> None:
             nonlocal startup_silent_frames
             nonlocal startup_non_silent_seen
+            nonlocal overflow_count
             nonlocal fallback_to_processed
 
             if status:
-                self._logger.warning("Capture status warning: %s", status)
+                overflow_count += 1
+                if overflow_count == 1 or (overflow_count % 25) == 0:
+                    self._logger.warning(
+                        "Unprocessed capture status warning (%s, count=%s). "
+                        "If crackling continues, use processed mode.",
+                        status,
+                        overflow_count,
+                    )
 
             if self._stop_event.is_set():
                 raise sd.CallbackStop()
@@ -180,10 +191,10 @@ class LoopbackCapture:
             device=device_index,
             samplerate=self._config.sample_rate,
             channels=self._config.channels,
-            blocksize=0,
+            blocksize=target_frames,
             dtype=self._config.sounddevice_dtype,
             callback=callback,
-            latency="low",
+            latency="high",
         ):
             self._started_event.set()
             while not self._stop_event.wait(0.2):
@@ -210,7 +221,8 @@ class LoopbackCapture:
             with mic.recorder(
                 samplerate=self._config.sample_rate,
                 channels=self._config.channels,
-                blocksize=self._config.frame_samples,
+                blocksize=self._config.frame_samples
+                * PROCESSED_RECORDER_BLOCK_MULTIPLIER,
             ) as recorder:
                 self._started_event.set()
 
