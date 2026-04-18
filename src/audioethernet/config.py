@@ -7,7 +7,7 @@ SUPPORTED_BIT_DEPTHS = (16, 24)
 SUPPORTED_SAMPLE_RATES = (44100, 48000)
 SUPPORTED_FRAME_MS = (5, 10, 20)
 SUPPORTED_LATENCY_PROFILES = ("low", "balanced", "stable")
-SUPPORTED_CAPTURE_PROCESSING = ("unprocessed", "processed")
+SUPPORTED_CAPTURE_PROCESSING = ("raw", "processed")
 
 
 @dataclass(slots=True)
@@ -17,7 +17,7 @@ class StreamConfig:
     sample_rate: int = 48000
     channels: int = 2
     frame_ms: int = 5
-    capture_processing: str = "unprocessed"
+    capture_processing: str = "raw"
     control_port: int = 50481
     data_port: int = 50482
     endpoint_name: str = socket.gethostname()

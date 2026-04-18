@@ -89,10 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--capture-processing",
-        default="unprocessed",
-        choices=["unprocessed", "processed"],
+        default="raw",
+        choices=["raw", "processed"],
         help=(
-            "Sender capture mode (default: unprocessed). "
+            "Sender capture mode (default: raw). "
             "Use processed to include endpoint effects such as APO processing."
         ),
     )

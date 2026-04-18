@@ -49,22 +49,19 @@ audioethernet -s --capture-processing processed
 
 ## Capture Processing Modes
 
-- `--capture-processing unprocessed` (default): tries to capture without endpoint enhancement chains when a suitable monitor source is available.
+- `--capture-processing raw` (default): uses native WASAPI RAW loopback (IAudioClient2 properties) to bypass most endpoint processing.
 - `--capture-processing processed`: captures regular loopback including endpoint effects.
 
-If unprocessed monitor capture is not usable on a device, sender falls back to processed loopback automatically.
+If RAW loopback is not usable on a device, sender falls back to processed loopback automatically.
 
-If you see a warning that unprocessed capture could not stay active, common causes are monitor input gating or disabled Stereo Mix style paths on the driver.
+If you see a warning that RAW capture could not stay active, common causes are driver limitations for RAW mode or unsupported endpoint format combinations.
 
 Quick fixes:
 
 - Start playback audio before launching sender.
-- In Windows Sound Recording, enable and unmute Stereo Mix (or equivalent monitor input).
-- Keep speaker endpoint unmuted and set non-zero volume while testing.
-- If your driver blocks monitor capture, use `--capture-processing processed`.
+- If your driver blocks RAW mode, use `--capture-processing processed`.
 
 Important limitation (Windows drivers):
 
-- Many unprocessed monitor inputs (Stereo Mix / What U Hear style sources) are hardware/driver dependent and can be gated by mixer state.
-- In this project's current pure-Python backend, truly raw render-endpoint loopback with guaranteed mute-independent behavior is not universally available.
-- The reliable mute-independent path is `--capture-processing processed` (WASAPI loopback style capture).
+- RAW support varies by endpoint/driver, and some systems may reject RAW stream properties.
+- When RAW is unavailable, the app falls back automatically to `processed` mode.

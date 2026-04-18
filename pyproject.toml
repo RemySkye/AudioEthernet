@@ -23,7 +23,8 @@ dependencies = [
   "numpy>=1.26",
   "sounddevice>=0.4.6",
   "soundcard>=0.4.6",
-  "psutil>=5.9.8"
+  "psutil>=5.9.8",
+  "pycaw>=20240210"
 ]
 
 [project.optional-dependencies]
