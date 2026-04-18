@@ -162,19 +162,7 @@ class ReceiverApp:
             self._last_packet_time = time.monotonic()
 
     def _network_loop(self) -> None:
-        last_discovery_sent = 0.0
-
         while not self._stop_event.is_set():
-            now = time.monotonic()
-            discovery_interval = (
-                self._config.heartbeat_seconds
-                if self._is_connected()
-                else self._config.reconnect_seconds
-            )
-            if (now - last_discovery_sent) >= discovery_interval:
-                self._discovery.send_discover()
-                last_discovery_sent = now
-
             incoming = self._discovery.recv(timeout_seconds=0.5)
             if incoming is None:
                 if self._stream_timed_out():

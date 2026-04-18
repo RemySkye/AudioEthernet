@@ -57,7 +57,6 @@ class SenderApp:
             self._config.capture_processing,
         )
 
-        self._discovery.start()
         self._capture.start()
 
         self._send_thread = threading.Thread(
@@ -125,21 +124,7 @@ class SenderApp:
             self._metrics.inc_dropped_frames(1)
 
     def _active_targets(self) -> list[tuple[str, int]]:
-        now = time.monotonic()
-        timeout = self._config.sender_peer_timeout_seconds
-        active: list[tuple[str, int]] = []
-        stale: list[tuple[str, int]] = []
-
-        with self._targets_lock:
-            for target, last_seen in self._targets.items():
-                if (now - last_seen) <= timeout:
-                    active.append(target)
-                else:
-                    stale.append(target)
-            for target in stale:
-                del self._targets[target]
-
-        return active
+        return [("255.255.255.255", self._config.port)]
 
     def _send_loop(self) -> None:
         last_heartbeat = 0.0
