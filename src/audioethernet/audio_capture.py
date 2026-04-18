@@ -13,7 +13,8 @@ from .config import StreamConfig
 
 AudioFrameCallback = Callable[[bytes, int], None]
 
-UNPROCESSED_STARTUP_SILENCE_SECONDS = 3.0
+# Give unprocessed monitor capture extra startup time before declaring it gated.
+UNPROCESSED_STARTUP_SILENCE_SECONDS = 8.0
 UNPROCESSED_SILENCE_INT16_THRESHOLD = 64
 UNPROCESSED_SILENCE_INT32_THRESHOLD = 4096
 
@@ -54,6 +55,20 @@ class LoopbackCapture:
         self._stop_event = threading.Event()
         self._started_event = threading.Event()
         self._startup_error: Exception | None = None
+        self._mode_lock = threading.Lock()
+        self._active_processing_mode = self._config.capture_processing
+
+    def active_processing_mode(self) -> str:
+        with self._mode_lock:
+            return self._active_processing_mode
+
+    def _set_active_processing_mode(self, mode: str) -> None:
+        with self._mode_lock:
+            previous = self._active_processing_mode
+            self._active_processing_mode = mode
+
+        if previous != mode:
+            self._logger.info("Capture mode switched: %s -> %s", previous, mode)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -77,8 +92,10 @@ class LoopbackCapture:
         if not self._started_event.is_set():
             raise RuntimeError("Loopback capture did not initialize in time")
 
+        active_mode = self.active_processing_mode()
         self._logger.info(
-            "Sender capture started in %s mode at %s Hz, %s-bit",
+            "Sender capture started in %s mode (requested: %s) at %s Hz, %s-bit",
+            active_mode,
             self._config.capture_processing,
             self._config.sample_rate,
             self._config.bit_depth,
@@ -92,6 +109,7 @@ class LoopbackCapture:
 
     def _capture_loop(self) -> None:
         if self._config.capture_processing == "unprocessed":
+            self._set_active_processing_mode("unprocessed")
             try:
                 self._capture_loop_unprocessed()
                 return
@@ -100,10 +118,12 @@ class LoopbackCapture:
                     return
                 self._logger.warning(
                     "Unprocessed capture could not stay active (%s). "
+                    "This is usually driver or mixer gating on monitor inputs. "
                     "Falling back to processed loopback for reliable capture.",
                     exc,
                 )
 
+        self._set_active_processing_mode("processed")
         self._capture_loop_processed()
 
     def _capture_loop_unprocessed(self) -> None:
@@ -169,10 +189,12 @@ class LoopbackCapture:
             while not self._stop_event.wait(0.2):
                 if fallback_to_processed:
                     raise RuntimeError(
-                        "startup monitor source stayed silent (likely mute-gated)"
+                        "startup monitor source stayed silent for "
+                        f"{UNPROCESSED_STARTUP_SILENCE_SECONDS:.1f}s"
                     )
 
     def _capture_loop_processed(self) -> None:
+        self._set_active_processing_mode("processed")
         com_initialized = False
         try:
             ctypes.windll.ole32.CoInitialize(None)

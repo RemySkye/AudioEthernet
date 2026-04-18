@@ -50,12 +50,13 @@ class SenderApp:
         self._process.cpu_percent(interval=None)
 
     def run_forever(self) -> None:
+        capture_label = self._capture_mode_label()
         self._logger.info(
             "Sender starting | stream=%s-bit/%sHz/%sms | capture=%s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.frame_ms,
-            self._config.capture_processing,
+            capture_label,
         )
 
         self._discovery.start()
@@ -201,6 +202,13 @@ class SenderApp:
             self._sequence = (self._sequence + 1) & 0xFFFFFFFF
             self._timestamp_samples += frame_samples
 
+    def _capture_mode_label(self) -> str:
+        requested = self._config.capture_processing
+        active = self._capture.active_processing_mode()
+        if active == requested:
+            return requested
+        return f"{requested}->{active}"
+
     def _metrics_loop(self) -> None:
         while not self._stop_event.wait(10.0):
             snapshot = self._metrics.snapshot()
@@ -209,13 +217,14 @@ class SenderApp:
             targets = len(self._active_targets())
             queue_depth = self._audio_queue.qsize()
             state = "streaming" if targets else "waiting-for-receiver"
+            capture_label = self._capture_mode_label()
             self._logger.info(
                 "sender stats | state=%s stream=%s-bit/%sHz/%sms capture=%s targets=%s queue=%s sent=%s dropped=%s cpu=%.1f%% mem=%.1fMB",
                 state,
                 self._config.bit_depth,
                 self._config.sample_rate,
                 self._config.frame_ms,
-                self._config.capture_processing,
+                capture_label,
                 targets,
                 queue_depth,
                 snapshot.packets_sent,

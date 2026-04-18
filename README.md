@@ -53,3 +53,12 @@ audioethernet -s --capture-processing processed
 - `--capture-processing processed`: captures regular loopback including endpoint effects.
 
 If unprocessed monitor capture is not usable on a device, sender falls back to processed loopback automatically.
+
+If you see a warning that unprocessed capture could not stay active, common causes are monitor input gating or disabled Stereo Mix style paths on the driver.
+
+Quick fixes:
+
+- Start playback audio before launching sender.
+- In Windows Sound Recording, enable and unmute Stereo Mix (or equivalent monitor input).
+- Keep speaker endpoint unmuted and set non-zero volume while testing.
+- If your driver blocks monitor capture, use `--capture-processing processed`.
