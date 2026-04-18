@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audioethernet"
+version = "0.1.0"
+description = "Low-latency LAN audio bridge for Windows 11"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+  {name = "AudioEthernet Contributors"}
+]
+keywords = ["audio", "ethernet", "wasapi", "lan", "streaming"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Topic :: Multimedia :: Sound/Audio"
+]
+dependencies = [
+  "numpy>=1.26",
+  "sounddevice>=0.4.6",
+  "soundcard>=0.4.6",
+  "psutil>=5.9.8"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0"
+]
+
+[project.scripts]
+audioethernet = "audioethernet.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

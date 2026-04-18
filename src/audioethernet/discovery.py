@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import json
+import socket
+import threading
+import time
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+from .config import StreamConfig
+
+DISCOVER_MESSAGE = "discover"
+OFFER_MESSAGE = "offer"
+PROTOCOL_TAG = "audioethernet-v1"
+
+
+@dataclass(slots=True)
+class SenderOffer:
+    sender_ip: str
+    sender_name: str
+    sample_rate: int
+    bit_depth: int
+    channels: int
+
+
+def _safe_json_parse(payload: bytes) -> Optional[dict]:
+    try:
+        obj = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    return obj
+
+
+class SenderDiscoveryService:
+    def __init__(
+        self,
+        config: StreamConfig,
+        on_receiver_discover: Callable[[str, int], None],
+    ) -> None:
+        self._config = config
+        self._on_receiver_discover = on_receiver_discover
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("", self._config.control_port))
+        self._sock.settimeout(0.5)
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, name="discovery-sender", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+        self._sock.close()
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                data, addr = self._sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+
+            message = _safe_json_parse(data)
+            if not message:
+                continue
+            if message.get("tag") != PROTOCOL_TAG:
+                continue
+            if message.get("type") != DISCOVER_MESSAGE:
+                continue
+
+            receiver_port = int(message.get("data_port", 0))
+            if not receiver_port:
+                continue
+
+            receiver_ip = addr[0]
+            self._on_receiver_discover(receiver_ip, receiver_port)
+
+            offer = {
+                "tag": PROTOCOL_TAG,
+                "type": OFFER_MESSAGE,
+                "sender_name": self._config.endpoint_name,
+                "sample_rate": self._config.sample_rate,
+                "bit_depth": self._config.bit_depth,
+                "channels": self._config.channels,
+                "ts": time.time(),
+            }
+            self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
+
+
+class ReceiverDiscoveryClient:
+    def __init__(self, config: StreamConfig) -> None:
+        self._config = config
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("", 0))
+        self._sock.settimeout(0.4)
+
+    def close(self) -> None:
+        self._sock.close()
+
+    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
+        discover = {
+            "tag": PROTOCOL_TAG,
+            "type": DISCOVER_MESSAGE,
+            "receiver_name": self._config.endpoint_name,
+            "data_port": self._config.data_port,
+            "ts": time.time(),
+        }
+        self._sock.sendto(
+            json.dumps(discover).encode("utf-8"),
+            ("255.255.255.255", self._config.control_port),
+        )
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                data, addr = self._sock.recvfrom(4096)
+            except socket.timeout:
+                continue
+
+            message = _safe_json_parse(data)
+            if not message:
+                continue
+            if message.get("tag") != PROTOCOL_TAG:
+                continue
+            if message.get("type") != OFFER_MESSAGE:
+                continue
+
+            return SenderOffer(
+                sender_ip=addr[0],
+                sender_name=str(message.get("sender_name", "unknown")),
+                sample_rate=int(message.get("sample_rate", 0)),
+                bit_depth=int(message.get("bit_depth", 0)),
+                channels=int(message.get("channels", 0)),
+            )
+
+        return None
