@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import threading
+import warnings
 from typing import Callable
 
 import numpy as np
@@ -11,8 +12,15 @@ from .config import StreamConfig
 
 AudioFrameCallback = Callable[[bytes, int], None]
 
-PROCESSED_RECORDER_BLOCK_MULTIPLIER = 8
+PROCESSED_RECORDER_BLOCK_MULTIPLIER = 2
 ENABLE_16BIT_DITHER = True
+
+# SoundCard may emit this warning under transient OS scheduling jitter
+# even while capture continues correctly.
+warnings.filterwarnings(
+    "ignore",
+    message="data discontinuity in recording",
+)
 
 
 class LoopbackCapture:

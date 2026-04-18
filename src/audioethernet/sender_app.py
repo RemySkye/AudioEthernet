@@ -162,6 +162,15 @@ class SenderApp:
         while not self._stop_event.is_set():
             active_targets = self._active_targets()
 
+            if not active_targets:
+                # Keep capture queue from growing while no receivers are active,
+                # but skip packet serialization work until a target appears.
+                try:
+                    self._audio_queue.get(timeout=0.05)
+                except queue.Empty:
+                    pass
+                continue
+
             try:
                 frame_bytes, frame_samples = self._audio_queue.get(timeout=0.05)
             except queue.Empty:

@@ -36,15 +36,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--frame-ms",
         type=int,
-        default=10,
+        default=5,
         choices=[5, 10, 20],
-        help="Frame duration in milliseconds (default: 10)",
+        help="Frame duration in milliseconds (default: 5)",
     )
     parser.add_argument(
         "--latency-profile",
-        default="stable",
+        default="low",
         choices=["low", "balanced", "stable"],
-        help="Jitter target profile for receiver (default: stable)",
+        help="Jitter target profile for receiver (default: low)",
     )
     parser.add_argument(
         "--control-port",
@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--queue-max-frames",
         type=int,
-        default=512,
+        default=128,
         help="Maximum queued frames for sender capture queue",
     )
     parser.add_argument(

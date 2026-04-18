@@ -31,15 +31,15 @@ Keep both terminal windows open while streaming.
 - Stereo
 - 16-bit
 - 48000 Hz
-- 10 ms frame size (quality-first default)
-- Stable receiver latency profile
+- 5 ms frame size (low-latency default)
+- Low receiver latency profile
 
 ## Useful Options
 
 ```bash
 audioethernet -s --bit-depth 24 --sample-rate 48000
-audioethernet -s --latency-profile stable --frame-ms 10
-audioethernet -s --latency-profile low --frame-ms 5  # lower latency, higher glitch risk
+audioethernet -s --latency-profile low --frame-ms 5
+audioethernet -s --latency-profile stable --frame-ms 10  # more buffering on unstable networks
 ```
 
 ## Receiver Format Sync
@@ -55,8 +55,7 @@ audioethernet -s --latency-profile low --frame-ms 5  # lower latency, higher gli
 
 Quality tuning currently includes:
 
-- Larger internal recorder blocks for smoother capture under load.
-- Stable fixed-size frame slicing before network send.
+- Low-latency recorder blocks with fixed-size frame slicing before network send.
 - Dithered 16-bit conversion and rounded PCM conversion to reduce quantization artifacts.
 
 Quick quality tips:

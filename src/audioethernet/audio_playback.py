@@ -29,7 +29,7 @@ class AudioPlayback:
             channels=self._config.channels,
             dtype=self._config.sounddevice_dtype,
             callback=self._audio_callback,
-            latency="high",
+            latency="low",
         )
         self._stream.start()
         self._logger.info(
