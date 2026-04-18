@@ -13,7 +13,7 @@ def test_default_audio_format_values() -> None:
     assert config.data_port == 50482
     assert config.frame_ms == 5
     assert config.frame_samples == 240
-    assert config.capture_processing == "unprocessed"
+    assert config.capture_processing == "processed"
     assert config.queue_max_frames == 256
 
 

@@ -73,7 +73,7 @@ class StreamConfig:
     sample_rate: int = 48000
     channels: int = 2
     frame_ms: int = 5
-    capture_processing: str = "unprocessed"
+    capture_processing: str = "processed"
     port: int = 50482
     control_port: int = 50481
     data_port: int = 50482

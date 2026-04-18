@@ -89,13 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--capture-processing",
-        default="unprocessed",
-        choices=["unprocessed", "processed"],
+        default="processed",
+        choices=["processed", "unprocessed"],
         help=(
-            "Sender capture mode (default: unprocessed). "
+            "Sender capture mode (default: processed). "
+            "Processed captures the audible endpoint output. "
             "Unprocessed uses Stereo Mix / WDM-KS monitor capture and requires "
-            "the sender device to be unmuted so the mix contains audio. "
-            "Use processed to include endpoint effects such as APO processing."
+            "the sender device to be unmuted so the mix contains audio."
         ),
     )
 
