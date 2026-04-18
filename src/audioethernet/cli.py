@@ -87,16 +87,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=8.0,
         help="Sender timeout to drop inactive receiver targets",
     )
-    parser.add_argument(
-        "--capture-processing",
-        default="raw",
-        choices=["raw", "processed"],
-        help=(
-            "Sender capture mode (default: raw). "
-            "Use processed to include endpoint effects such as APO processing."
-        ),
-    )
-
     return parser
 
 
@@ -112,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         bit_depth=args.bit_depth,
         sample_rate=args.sample_rate,
         frame_ms=args.frame_ms,
-        capture_processing=args.capture_processing,
+        capture_processing="processed",
         control_port=args.control_port,
         data_port=args.data_port,
         endpoint_name=endpoint_name or StreamConfig(role=role).endpoint_name,

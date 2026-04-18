@@ -38,7 +38,6 @@ Keep both terminal windows open while streaming.
 ```bash
 audioethernet -s --bit-depth 24 --sample-rate 48000
 audioethernet -s --latency-profile low --frame-ms 5
-audioethernet -s --capture-processing processed
 ```
 
 ## Receiver Format Sync
@@ -49,19 +48,20 @@ audioethernet -s --capture-processing processed
 
 ## Capture Processing Modes
 
-- `--capture-processing raw` (default): uses native WASAPI RAW loopback (IAudioClient2 properties) to bypass most endpoint processing.
-- `--capture-processing processed`: captures regular loopback including endpoint effects.
+- Processed loopback is the only capture mode now.
+- It captures regular loopback including endpoint effects.
 
-If RAW loopback is not usable on a device, sender falls back to processed loopback automatically.
+Quality tuning currently includes:
 
-If you see a warning that RAW capture could not stay active, common causes are driver limitations for RAW mode or unsupported endpoint format combinations.
+- Larger internal recorder blocks for smoother capture under load.
+- Stable fixed-size frame slicing before network send.
+- Dithered 16-bit conversion and rounded PCM conversion to reduce quantization artifacts.
 
-Quick fixes:
+Quick quality tips:
 
 - Start playback audio before launching sender.
-- If your driver blocks RAW mode, use `--capture-processing processed`.
+- Use 24-bit mode when possible for best headroom: `audioethernet -s --bit-depth 24`.
 
 Important limitation (Windows drivers):
 
-- RAW support varies by endpoint/driver, and some systems may reject RAW stream properties.
-- When RAW is unavailable, the app falls back automatically to `processed` mode.
+- Endpoint enhancement settings (driver/APO) can still affect processed loopback sound.
