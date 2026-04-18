@@ -62,7 +62,7 @@ class StreamConfig:
     frame_ms: int | None = None
     capture_processing: str = "processed"
     control_port: int = 50481
-    data_port: int = 50482
+    data_port: int = 0
     endpoint_name: str = socket.gethostname()
     queue_max_frames: int | None = None
     heartbeat_seconds: float | None = None
@@ -109,8 +109,8 @@ class StreamConfig:
             raise ValueError("only stereo (2 channels) is supported")
         if not 1 <= self.control_port <= 65535:
             raise ValueError("control-port must be 1..65535")
-        if not 1 <= self.data_port <= 65535:
-            raise ValueError("data-port must be 1..65535")
+        if not 0 <= self.data_port <= 65535:
+            raise ValueError("data-port must be 0..65535")
         if self.capture_processing not in SUPPORTED_CAPTURE_PROCESSING:
             raise ValueError(
                 f"capture-processing must be one of {SUPPORTED_CAPTURE_PROCESSING}"

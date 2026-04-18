@@ -18,7 +18,6 @@ from .protocol import (
     StreamFormat,
     unpack_packet,
 )
-from .transport_udp import UDPReceiver
 
 
 class ReceiverApp:
@@ -29,7 +28,7 @@ class ReceiverApp:
         self._stop_event = threading.Event()
 
         self._discovery = ReceiverDiscoveryClient(self._config)
-        self._udp_receiver = UDPReceiver(self._config.data_port)
+        self._config.data_port = self._discovery.local_port
 
         self._stream_format = StreamFormat(
             channels=self._config.channels,
@@ -50,7 +49,7 @@ class ReceiverApp:
             logger=self._logger,
         )
 
-        self._receiver_thread: threading.Thread | None = None
+        self._network_thread: threading.Thread | None = None
         self._metrics_thread: threading.Thread | None = None
 
         self._state_lock = threading.Lock()
@@ -63,24 +62,23 @@ class ReceiverApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Receiver starting with %s-bit %s Hz, profile=%s, frame %s ms",
+            "Receiver starting with %s-bit %s Hz, profile=%s, frame %s ms, data port %s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.profile,
             self._config.frame_ms,
+            self._config.data_port,
         )
 
         ensure_receiver_firewall_rule(self._config.data_port, self._logger)
         self._playback.start()
 
-        last_discovery_refresh = 0.0
-
-        self._receiver_thread = threading.Thread(
-            target=self._receive_loop,
+        self._network_thread = threading.Thread(
+            target=self._network_loop,
             name="receiver-network",
             daemon=True,
         )
-        self._receiver_thread.start()
+        self._network_thread.start()
 
         self._metrics_thread = threading.Thread(
             target=self._metrics_loop,
@@ -91,34 +89,6 @@ class ReceiverApp:
 
         try:
             while not self._stop_event.is_set():
-                if not self._is_connected():
-                    offer = self._discovery.discover_once(
-                        timeout_seconds=self._config.reconnect_seconds
-                    )
-                    if offer:
-                        self._apply_stream_format(offer.stream_format)
-                        self._set_connected(offer.sender_ip)
-                        self._logger.info(
-                            "Connected to sender %s (%s) at %s Hz, %s-bit, frame %s samples",
-                            offer.sender_name,
-                            offer.sender_ip,
-                            offer.sample_rate,
-                            offer.bit_depth,
-                            offer.frame_samples,
-                        )
-                        last_discovery_refresh = time.monotonic()
-                else:
-                    now = time.monotonic()
-                    if now - last_discovery_refresh >= self._config.heartbeat_seconds:
-                        # Refresh sender-side peer liveness so stream is not dropped.
-                        offer = self._discovery.discover_once(timeout_seconds=0.1)
-                        if offer:
-                            self._apply_stream_format(offer.stream_format)
-                        last_discovery_refresh = now
-
-                    if self._stream_timed_out():
-                        self._logger.warning("Stream timed out, returning to discovery")
-                        self._set_disconnected()
                 time.sleep(0.1)
         finally:
             self.stop()
@@ -130,13 +100,12 @@ class ReceiverApp:
 
         self._playback.stop()
 
-        if self._receiver_thread and self._receiver_thread.is_alive():
-            self._receiver_thread.join(timeout=2.0)
+        if self._network_thread and self._network_thread.is_alive():
+            self._network_thread.join(timeout=2.0)
         if self._metrics_thread and self._metrics_thread.is_alive():
             self._metrics_thread.join(timeout=2.0)
 
         self._discovery.close()
-        self._udp_receiver.close()
         self._logger.info("Receiver stopped")
 
     def _apply_stream_format(self, stream_format: StreamFormat) -> None:
@@ -193,32 +162,46 @@ class ReceiverApp:
         with self._state_lock:
             self._last_packet_time = time.monotonic()
 
-    def _receive_loop(self) -> None:
+    def _network_loop(self) -> None:
+        last_discovery_sent = 0.0
+
         while not self._stop_event.is_set():
-            incoming = self._udp_receiver.recv(timeout=0.5)
+            now = time.monotonic()
+            discovery_interval = (
+                self._config.heartbeat_seconds
+                if self._is_connected()
+                else self._config.reconnect_seconds
+            )
+            if (now - last_discovery_sent) >= discovery_interval:
+                self._discovery.send_discover()
+                last_discovery_sent = now
+
+            incoming = self._discovery.recv(timeout_seconds=0.5)
             if incoming is None:
+                if self._stream_timed_out():
+                    self._logger.warning("Stream timed out, returning to discovery")
+                    self._set_disconnected()
                 continue
 
             data, addr = incoming
             try:
                 packet = unpack_packet(data)
             except ProtocolError:
-                self._metrics.inc_malformed_packets(1)
                 continue
 
             locked_ip = self._sender_locked_ip()
             if locked_ip is not None and addr[0] != locked_ip:
                 continue
 
+            if not self._is_connected():
+                self._set_connected(addr[0])
+                self._logger.info("Stream detected from sender %s", addr[0])
+
             self._metrics.inc_packets_received(1)
             self._mark_packet()
 
             packet_format = packet.stream_format
             self._apply_stream_format(packet_format)
-
-            if not self._is_connected():
-                self._set_connected(addr[0])
-                self._logger.info("Stream detected from sender %s", addr[0])
 
             if packet.flags & FLAG_HEARTBEAT:
                 continue

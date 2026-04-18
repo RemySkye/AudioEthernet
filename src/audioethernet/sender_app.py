@@ -12,7 +12,6 @@ from .config import StreamConfig
 from .discovery import SenderDiscoveryService
 from .metrics import RuntimeMetrics
 from .protocol import pack_audio_packet, pack_heartbeat
-from .transport_udp import UDPSender
 
 
 class SenderApp:
@@ -29,7 +28,6 @@ class SenderApp:
         self._targets: Dict[Tuple[str, int], float] = {}
         self._targets_lock = threading.Lock()
 
-        self._sender = UDPSender()
         self._capture = LoopbackCapture(
             config=self._config,
             on_frame=self._on_audio_frame,
@@ -95,7 +93,6 @@ class SenderApp:
         if self._metrics_thread and self._metrics_thread.is_alive():
             self._metrics_thread.join(timeout=2.0)
 
-        self._sender.close()
         self._logger.info("Sender stopped")
 
     def _on_receiver_discover(self, receiver_ip: str, receiver_port: int) -> None:
@@ -167,7 +164,7 @@ class SenderApp:
                         timestamp_samples=self._timestamp_samples,
                     )
                     for target in active_targets:
-                        self._sender.send(heartbeat, target)
+                        self._discovery.send(heartbeat, target)
                         self._metrics.inc_packets_sent(1)
                     self._sequence = (self._sequence + 1) & 0xFFFFFFFF
                     last_heartbeat = now
@@ -184,7 +181,7 @@ class SenderApp:
             )
 
             for target in active_targets:
-                self._sender.send(packet, target)
+                self._discovery.send(packet, target)
                 self._metrics.inc_packets_sent(1)
 
             self._sequence = (self._sequence + 1) & 0xFFFFFFFF

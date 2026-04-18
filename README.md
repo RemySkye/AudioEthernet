@@ -45,7 +45,7 @@ audioethernet -r -p low
 - Receiver defaults to the safe profile.
 - Stereo is used by default.
 - The default sender format is 16-bit, 48000 Hz.
-- The receiver tries to allow its UDP port through Windows Firewall when it starts on Windows with administrator privileges.
+- The receiver auto-selects its UDP audio port by default and tries to allow that port through Windows Firewall when it starts on Windows with administrator privileges.
 
 ## Supported Formats
 

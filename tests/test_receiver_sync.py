@@ -20,6 +20,7 @@ class DummyLogger:
 class FakeDiscovery:
     def __init__(self, config) -> None:
         self.config = config
+        self.local_port = 62000
 
     def close(self) -> None:
         pass
@@ -27,12 +28,10 @@ class FakeDiscovery:
     def discover_once(self, timeout_seconds: float = 1.0):
         return None
 
+    def send_discover(self) -> None:
+        pass
 
-class FakeUDPReceiver:
-    def __init__(self, bind_port: int) -> None:
-        self.bind_port = bind_port
-
-    def recv(self, timeout: float = 0.5):
+    def recv(self, timeout_seconds: float = 0.5):
         return None
 
     def close(self) -> None:
@@ -89,7 +88,6 @@ def test_receiver_applies_sender_stream_format(monkeypatch) -> None:
     FakeJitterBuffer.instances.clear()
 
     monkeypatch.setattr(receiver_app, "ReceiverDiscoveryClient", FakeDiscovery)
-    monkeypatch.setattr(receiver_app, "UDPReceiver", FakeUDPReceiver)
     monkeypatch.setattr(receiver_app, "AudioPlayback", FakePlayback)
     monkeypatch.setattr(receiver_app, "AdaptiveJitterBuffer", FakeJitterBuffer)
 

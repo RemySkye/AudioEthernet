@@ -64,8 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--data-port",
         type=int,
-        default=50482,
-        help="Receiver data UDP port",
+        default=None,
+        help="Receiver data UDP port (default: auto on receiver)",
     )
     parser.add_argument(
         "--name",
@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         frame_ms=args.frame_ms,
         capture_processing=args.capture_processing,
         control_port=args.control_port,
-        data_port=args.data_port,
+        data_port=args.data_port if args.data_port is not None else 0,
         endpoint_name=endpoint_name or socket.gethostname(),
         receiver_stream_timeout_seconds=args.receiver_timeout_seconds,
         sender_peer_timeout_seconds=args.sender_peer_timeout_seconds,

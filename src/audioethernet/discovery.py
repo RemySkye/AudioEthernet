@@ -54,6 +54,7 @@ class SenderDiscoveryService:
         self._on_receiver_discover = on_receiver_discover
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._send_lock = threading.Lock()
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -70,12 +71,22 @@ class SenderDiscoveryService:
             self._thread.join(timeout=2.0)
         self._sock.close()
 
+    def send(self, payload: bytes, target: tuple[str, int]) -> None:
+        with self._send_lock:
+            self._sock.sendto(payload, target)
+
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
                 data, addr = self._sock.recvfrom(4096)
             except socket.timeout:
                 continue
+            except ConnectionResetError:
+                continue
+            except OSError as exc:
+                if getattr(exc, "winerror", None) == 10054:
+                    continue
+                raise
 
             message = _safe_json_parse(data)
             if not message:
@@ -114,10 +125,14 @@ class ReceiverDiscoveryClient:
         self._sock.bind(("", 0))
         self._sock.settimeout(0.4)
 
+    @property
+    def local_port(self) -> int:
+        return self._sock.getsockname()[1]
+
     def close(self) -> None:
         self._sock.close()
 
-    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
+    def send_discover(self) -> None:
         discover = {
             "tag": PROTOCOL_TAG,
             "type": DISCOVER_MESSAGE,
@@ -130,12 +145,28 @@ class ReceiverDiscoveryClient:
             ("255.255.255.255", self._config.control_port),
         )
 
+    def recv(self, timeout_seconds: float = 0.5) -> Optional[tuple[bytes, tuple[str, int]]]:
+        self._sock.settimeout(timeout_seconds)
+        try:
+            return self._sock.recvfrom(65535)
+        except socket.timeout:
+            return None
+        except ConnectionResetError:
+            return None
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 10054:
+                return None
+            raise
+
+    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
+        self.send_discover()
+
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
-            try:
-                data, addr = self._sock.recvfrom(4096)
-            except socket.timeout:
+            incoming = self.recv(timeout_seconds=timeout_seconds)
+            if incoming is None:
                 continue
+            data, addr = incoming
 
             message = _safe_json_parse(data)
             if not message:
