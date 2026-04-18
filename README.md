@@ -31,13 +31,15 @@ Keep both terminal windows open while streaming.
 - Stereo
 - 16-bit
 - 48000 Hz
-- 5 ms frame size
+- 10 ms frame size (quality-first default)
+- Stable receiver latency profile
 
 ## Useful Options
 
 ```bash
 audioethernet -s --bit-depth 24 --sample-rate 48000
-audioethernet -s --latency-profile low --frame-ms 5
+audioethernet -s --latency-profile stable --frame-ms 10
+audioethernet -s --latency-profile low --frame-ms 5  # lower latency, higher glitch risk
 ```
 
 ## Receiver Format Sync

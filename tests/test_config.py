@@ -6,7 +6,7 @@ def test_default_audio_format_values() -> None:
     assert config.bit_depth == 16
     assert config.sample_rate == 48000
     assert config.channels == 2
-    assert config.frame_samples == 240
+    assert config.frame_samples == 480
     assert config.capture_processing == "processed"
 
 

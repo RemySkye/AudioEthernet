@@ -16,17 +16,17 @@ class StreamConfig:
     bit_depth: int = 16
     sample_rate: int = 48000
     channels: int = 2
-    frame_ms: int = 5
+    frame_ms: int = 10
     capture_processing: str = "processed"
     control_port: int = 50481
     data_port: int = 50482
     endpoint_name: str = socket.gethostname()
-    latency_profile: str = "balanced"
+    latency_profile: str = "stable"
     heartbeat_seconds: float = 1.0
     reconnect_seconds: float = 1.0
     sender_peer_timeout_seconds: float = 8.0
     receiver_stream_timeout_seconds: float = 3.0
-    queue_max_frames: int = 256
+    queue_max_frames: int = 512
 
     def validate(self) -> None:
         if self.role not in {"sender", "receiver"}:
