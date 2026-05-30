@@ -1,11 +1,11 @@
 # AudioEthernet
 
-AudioEthernet streams system audio over LAN between Windows PCs. It is tuned for low CPU use, safe defaults, and automatic receiver format sync.
+AudioEthernet streams system audio over LAN between Windows PCs. 
 
 ## Install
 
 ```bash
-pip install "git+https://github.com/<your-username>/AudioEthernet.git"
+pip install "git+https://github.com/RemySkye/AudioEthernet.git"
 ```
 
 After install, run `audioethernet` from PowerShell or CMD.
