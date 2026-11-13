@@ -2,10 +2,16 @@
 
 AudioEthernet streams uncompressed PCM system audio over LAN between Windows 11 PCs with low latency, adaptive jitter buffering, and automatic receiver format synchronization.
 
-## Install
+## Install & Update
 
 ```bash
 pip install "git+https://github.com/RemySkye/AudioEthernet.git"
+```
+
+To update an existing installation to the latest commit:
+
+```bash
+pip install --no-deps --force-reinstall "git+https://github.com/RemySkye/AudioEthernet.git"
 ```
 
 After install, run `audioethernet` from PowerShell or CMD.
@@ -36,9 +42,9 @@ Receiver playback follows the sender's active stream format (`sample_rate`, `bit
 
 The **sender** chooses the stream format and `--latency-profile` (`balanced` is the default), and the **receiver** automatically syncs its playback and jitter buffer to match the sender:
 
-- `low`: Smallest WASAPI/WDM-KS device buffers (`10 ms`) and tight adaptive jitter buffer (`2–6` frames, starting at `3`). Best for wired Gigabit Ethernet.
-- `balanced`: Default (`20 ms` device buffers, `3–10` frame jitter buffer, starting at `4`).
-- `stable`: Larger buffers (`40 ms` device buffers, `10 ms` frames, `5–16` frame jitter buffer) for noisier links or Wi-Fi.
+- `low`: `5 ms` frames, `20 ms` capture/playback device ring buffers, and a tight adaptive jitter buffer (`3–10` frames, starting at `4`). Best for wired Gigabit Ethernet.
+- `balanced`: Default (`5 ms` frames, `20 ms` capture/playback device ring buffers, `4–14` frame jitter buffer starting at `6`).
+- `stable`: Larger buffers (`10 ms` frames, `20 ms` capture / `30 ms` playback device ring buffers, `5–18` frame jitter buffer starting at `8`) for noisier links or Wi-Fi.
 
 Examples:
 
@@ -46,8 +52,11 @@ Examples:
 # Receiver just listens and adapts automatically to whatever the sender sends
 audioethernet -r
 
-# Sender: low-latency unprocessed 24-bit / 48 kHz stream
+# Sender: low-latency unprocessed 24-bit / 48 kHz stream (physical laptop speakers off via virtual cable if present)
 audioethernet -s --capture-processing unprocessed --latency-profile low --bit-depth 24
+
+# Sender: unprocessed while keeping hardware laptop speakers active via Stereo Mix
+audioethernet -s --capture-processing unprocessed --keep-local-speakers
 
 # Receiver: direct unicast connection to a known sender IP (skips broadcast discovery)
 audioethernet -r --target 192.168.1.50
@@ -59,8 +68,8 @@ audioethernet -r --playback-device "Headphones"
 
 ## Capture Modes
 
-- `--capture-processing processed` (default): Captures Windows WASAPI loopback audio from the default output device (or `--capture-device`).
-- `--capture-processing unprocessed`: Captures directly from a Windows WDM-KS monitor input (e.g., Stereo Mix) without Windows APO loopback processing. Keep the sender output unmuted so the monitor mix carries audio. Falls back to processed loopback only if opening the WDM-KS device fails.
+- `--capture-processing processed` (default): Captures Windows WASAPI loopback audio from the default output device (or `--capture-device`), emitting paced silence when nothing is playing so playback clocks stay smooth.
+- `--capture-processing unprocessed`: Captures directly from a Windows WDM-KS monitor input (e.g., VB-Audio `CABLE Output` or `Stereo Mix`) without Windows APO loopback processing. When a virtual cable playback endpoint (such as VB-Audio `CABLE Input`) is available and neither `--capture-device` nor `--keep-local-speakers` is passed, AudioEthernet temporarily routes Windows default playback through the virtual cable so physical speakers stay completely off (even if muted in Windows) and restores your original speaker on exit. Use `--keep-local-speakers` to leave hardware speakers as the default output via `Stereo Mix`. Explicit `unprocessed` mode reports capture errors rather than silently falling back to `processed`.
 - `--capture-processing auto`: Tries `unprocessed` first and automatically falls back to `processed` if unavailable or silent at startup.
 
 ## Supported Formats & Ports
