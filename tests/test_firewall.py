@@ -51,3 +51,22 @@ def test_firewall_helper_warns_without_admin(monkeypatch) -> None:
 
     assert result is False
     assert any("administrator privileges" in message for message in logger.warning_messages)
+
+
+def test_firewall_helper_creates_sender_control_rule_on_windows(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command, capture_output, text, check):
+        captured["command"] = command
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(firewall.sys, "platform", "win32")
+    monkeypatch.setattr(firewall, "_is_windows_admin", lambda: True)
+    monkeypatch.setattr(firewall.subprocess, "run", fake_run)
+
+    logger = DummyLogger()
+    result = firewall.ensure_sender_firewall_rule(50481, logger)
+
+    assert result is True
+    assert '$ruleName = "AudioEthernet-Sender-UDP-50481"' in captured["command"][5]
+    assert logger.info_messages[-1] == "Allowed inbound UDP port 50481 in Windows Firewall"

@@ -3,11 +3,16 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
+from .config import SUPPORTED_BIT_DEPTHS, SUPPORTED_SAMPLE_RATES
+
 MAGIC = b"AETH"
 VERSION = 1
 
 FLAG_AUDIO = 0x01
 FLAG_HEARTBEAT = 0x02
+VALID_FLAGS = FLAG_AUDIO | FLAG_HEARTBEAT
+
+MAX_FRAME_SAMPLES = 16384
 
 HEADER_STRUCT = struct.Struct("!4sBBBBIHIQH")
 
@@ -128,10 +133,32 @@ def unpack_packet(data: bytes) -> Packet:
         raise ProtocolError("invalid magic")
     if version != VERSION:
         raise ProtocolError("unsupported protocol version")
+    if flags == 0 or (flags & ~VALID_FLAGS) != 0:
+        raise ProtocolError("invalid packet flags")
+    if channels != 2:
+        raise ProtocolError("unsupported channel count")
+    if bit_depth not in SUPPORTED_BIT_DEPTHS:
+        raise ProtocolError("unsupported bit depth")
+    if sample_rate not in SUPPORTED_SAMPLE_RATES:
+        raise ProtocolError("unsupported sample rate")
+    if not 1 <= frame_samples <= MAX_FRAME_SAMPLES:
+        raise ProtocolError("invalid frame sample count")
 
     payload = data[HEADER_STRUCT.size :]
     if len(payload) != payload_len:
         raise ProtocolError("payload length mismatch")
+
+    stream_format = StreamFormat(
+        channels=channels,
+        bit_depth=bit_depth,
+        sample_rate=sample_rate,
+        frame_samples=frame_samples,
+    )
+    if (flags & FLAG_HEARTBEAT) and payload_len != 0:
+        raise ProtocolError("heartbeat packet must have empty payload")
+    if (flags & FLAG_AUDIO) and payload_len == 0:
+        raise ProtocolError("audio packet must have non-empty payload")
+    _ = stream_format
 
     return Packet(
         flags=flags,

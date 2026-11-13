@@ -12,6 +12,8 @@ class MetricsSnapshot:
     malformed_packets: int
     packets_received: int
     packets_sent: int
+    lost_packets: int
+    late_packets: int
 
 
 class RuntimeMetrics:
@@ -23,6 +25,8 @@ class RuntimeMetrics:
         self._malformed_packets = 0
         self._packets_received = 0
         self._packets_sent = 0
+        self._lost_packets = 0
+        self._late_packets = 0
 
     def inc_dropped_frames(self, count: int = 1) -> None:
         with self._lock:
@@ -48,6 +52,14 @@ class RuntimeMetrics:
         with self._lock:
             self._packets_sent += count
 
+    def inc_lost_packets(self, count: int = 1) -> None:
+        with self._lock:
+            self._lost_packets += count
+
+    def inc_late_packets(self, count: int = 1) -> None:
+        with self._lock:
+            self._late_packets += count
+
     def snapshot(self) -> MetricsSnapshot:
         with self._lock:
             return MetricsSnapshot(
@@ -57,4 +69,6 @@ class RuntimeMetrics:
                 malformed_packets=self._malformed_packets,
                 packets_received=self._packets_received,
                 packets_sent=self._packets_sent,
+                lost_packets=self._lost_packets,
+                late_packets=self._late_packets,
             )

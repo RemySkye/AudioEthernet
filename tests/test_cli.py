@@ -24,3 +24,29 @@ def test_help_mentions_latency_profile_and_unprocessed_mode() -> None:
     assert "--port" not in help_text
     assert "Stereo Mix" in help_text
     assert "processed" in help_text
+    assert "--target" in help_text
+    assert "--capture-device" in help_text
+
+
+def test_latency_profile_controls_unspecified_defaults(monkeypatch) -> None:
+    import audioethernet.cli as cli
+
+    captured: dict[str, object] = {}
+
+    class FakeSenderApp:
+        def __init__(self, config, logger) -> None:
+            captured["config"] = config
+
+        def run_forever(self) -> None:
+            pass
+
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "SenderApp", FakeSenderApp)
+    cli.main(["-s", "--latency-profile", "stable", "--capture-processing", "unprocessed"])
+    cfg = captured["config"]
+    assert cfg.frame_ms == 10
+    assert cfg.queue_max_frames == 512
+    assert cfg.sender_peer_timeout_seconds == 12.0
+    assert cfg.capture_processing == "unprocessed"

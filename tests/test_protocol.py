@@ -1,6 +1,10 @@
 from audioethernet.protocol import (
     FLAG_AUDIO,
     FLAG_HEARTBEAT,
+    HEADER_STRUCT,
+    MAGIC,
+    VERSION,
+    ProtocolError,
     pack_audio_packet,
     pack_heartbeat,
     unpack_packet,
@@ -64,3 +68,26 @@ def test_stream_format_handles_32_bit_payload_sizes() -> None:
     assert packet.stream_format.sample_rate == 96000
     assert packet.stream_format.frame_samples == 960
     assert packet.stream_format.frame_bytes == 960 * 2 * 4
+
+
+def test_unpack_packet_rejects_invalid_header_values() -> None:
+    bad_rate = HEADER_STRUCT.pack(
+        MAGIC, VERSION, FLAG_HEARTBEAT, 2, 16, 12345, 480, 1, 0, 0
+    )
+    bad_channels = HEADER_STRUCT.pack(
+        MAGIC, VERSION, FLAG_HEARTBEAT, 99, 16, 48000, 480, 1, 0, 0
+    )
+    bad_depth = HEADER_STRUCT.pack(
+        MAGIC, VERSION, FLAG_HEARTBEAT, 2, 8, 48000, 480, 1, 0, 0
+    )
+    bad_flags = HEADER_STRUCT.pack(
+        MAGIC, VERSION, 0x80, 2, 16, 48000, 480, 1, 0, 0
+    )
+
+    for raw in (bad_rate, bad_channels, bad_depth, bad_flags):
+        try:
+            unpack_packet(raw)
+            raised = False
+        except ProtocolError:
+            raised = True
+        assert raised

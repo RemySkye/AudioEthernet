@@ -38,6 +38,7 @@ class ReceiverApp:
             frame_samples=self._config.frame_samples,
         )
 
+        assert self._config.queue_max_frames is not None
         self._jitter = AdaptiveJitterBuffer(
             frame_bytes=self._stream_format.frame_bytes,
             latency_profile=self._config.latency_profile,
@@ -63,16 +64,19 @@ class ReceiverApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Receiver starting with %s-bit %s Hz, frame %s ms",
+            "Receiver starting with %s-bit %s Hz, frame %s ms, profile=%s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.frame_ms,
+            self._config.latency_profile,
         )
 
         ensure_receiver_firewall_rule(self._config.data_port, self._logger)
         self._playback.start()
 
         last_discovery_refresh = 0.0
+        assert self._config.reconnect_seconds is not None
+        assert self._config.heartbeat_seconds is not None
 
         self._receiver_thread = threading.Thread(
             target=self._receive_loop,
@@ -90,7 +94,8 @@ class ReceiverApp:
 
         try:
             while not self._stop_event.is_set():
-                if not self._is_connected():
+                sender_ip = self._sender_locked_ip()
+                if sender_ip is None:
                     offer = self._discovery.discover_once(
                         timeout_seconds=self._config.reconnect_seconds
                     )
@@ -105,7 +110,7 @@ class ReceiverApp:
                 else:
                     now = time.monotonic()
                     if now - last_discovery_refresh >= self._config.heartbeat_seconds:
-                        self._discovery.discover_once(timeout_seconds=0.1)
+                        self._discovery.send_keepalive(sender_ip)
                         last_discovery_refresh = now
 
                     if self._stream_timed_out():
@@ -122,17 +127,18 @@ class ReceiverApp:
         self._stop_event.set()
 
         self._playback.stop()
+        self._udp_receiver.close()
+        self._discovery.close()
 
         if self._receiver_thread and self._receiver_thread.is_alive():
             self._receiver_thread.join(timeout=2.0)
         if self._metrics_thread and self._metrics_thread.is_alive():
             self._metrics_thread.join(timeout=2.0)
 
-        self._discovery.close()
-        self._udp_receiver.close()
         self._logger.info("Receiver stopped")
 
     def _apply_stream_format(self, stream_format: StreamFormat) -> None:
+        assert self._config.queue_max_frames is not None
         with self._state_lock:
             if stream_format == self._stream_format:
                 return
@@ -164,13 +170,15 @@ class ReceiverApp:
             self._connected = False
             self._sender_ip = None
             self._last_packet_time = 0.0
-        self._jitter.reset()
+            jitter = self._jitter
+        jitter.reset()
 
     def _is_connected(self) -> bool:
         with self._state_lock:
             return self._connected
 
     def _stream_timed_out(self) -> bool:
+        assert self._config.receiver_stream_timeout_seconds is not None
         with self._state_lock:
             if not self._connected:
                 return False
@@ -185,6 +193,10 @@ class ReceiverApp:
     def _mark_packet(self) -> None:
         with self._state_lock:
             self._last_packet_time = time.monotonic()
+
+    def _current_jitter(self) -> AdaptiveJitterBuffer:
+        with self._state_lock:
+            return self._jitter
 
     def _receive_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -202,6 +214,14 @@ class ReceiverApp:
             locked_ip = self._sender_locked_ip()
             if locked_ip is not None and addr[0] != locked_ip:
                 continue
+            if self._config.target_ip and addr[0] != self._config.target_ip:
+                continue
+
+            if (packet.flags & FLAG_AUDIO) and len(
+                packet.payload
+            ) != packet.stream_format.frame_bytes:
+                self._metrics.inc_malformed_packets(1)
+                continue
 
             self._metrics.inc_packets_received(1)
             self._mark_packet()
@@ -216,13 +236,15 @@ class ReceiverApp:
                 continue
 
             if packet.flags & FLAG_AUDIO:
-                dropped = self._jitter.push(packet.payload)
+                jitter = self._current_jitter()
+                dropped = jitter.push(packet.payload, sequence=packet.sequence)
                 if dropped:
                     self._metrics.inc_dropped_frames(dropped)
                     self._metrics.inc_overruns(dropped)
 
     def _next_frame(self) -> bytes:
-        frame, dropped, underrun = self._jitter.pop()
+        jitter = self._current_jitter()
+        frame, dropped, underrun = jitter.pop()
         if dropped:
             self._metrics.inc_dropped_frames(dropped)
         if underrun:
@@ -234,13 +256,27 @@ class ReceiverApp:
             snapshot = self._metrics.snapshot()
             cpu = self._process.cpu_percent(interval=None)
             mem_mb = self._process.memory_info().rss / (1024 * 1024)
-            depth = self._jitter.depth()
+            jitter = self._current_jitter()
+            depth = jitter.depth()
+            target = (
+                jitter.target_frames()
+                if hasattr(jitter, "target_frames")
+                else "-"
+            )
+            lost, late = (
+                jitter.packet_counters()
+                if hasattr(jitter, "packet_counters")
+                else (0, 0)
+            )
             self._logger.info(
-                "receiver metrics | connected=%s sender=%s buffer=%s recv=%s underrun=%s drop=%s cpu=%.1f%% mem=%.1fMB",
+                "receiver metrics | connected=%s sender=%s buffer=%s/%s recv=%s lost=%s late=%s underrun=%s drop=%s cpu=%.1f%% mem=%.1fMB",
                 self._is_connected(),
                 self._sender_locked_ip(),
                 depth,
+                target,
                 snapshot.packets_received,
+                lost,
+                late,
                 snapshot.underruns,
                 snapshot.dropped_frames,
                 cpu,

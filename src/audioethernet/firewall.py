@@ -19,7 +19,13 @@ def _is_windows_admin() -> bool:
         return False
 
 
-def ensure_receiver_firewall_rule(port: int, logger) -> bool:
+def _ensure_udp_firewall_rule(
+    *,
+    port: int,
+    rule_name: str,
+    display_name: str,
+    logger,
+) -> bool:
     if sys.platform != "win32":
         logger.debug("Skipping firewall rule setup on non-Windows platform")
         return False
@@ -31,8 +37,6 @@ def ensure_receiver_firewall_rule(port: int, logger) -> bool:
         )
         return False
 
-    rule_name = f"AudioEthernet-Receiver-UDP-{port}"
-    display_name = f"AudioEthernet receiver UDP {port}"
     script = f"""
 $ruleName = "{rule_name}"
 $displayName = "{display_name}"
@@ -57,7 +61,9 @@ New-NetFirewallRule -Name $ruleName -DisplayName $displayName -Direction Inbound
         return False
 
     if completed.returncode != 0:
-        error_text = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+        error_text = (
+            completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+        )
         logger.warning(
             "Unable to create Windows Firewall rule for UDP port %s: %s",
             port,
@@ -67,3 +73,21 @@ New-NetFirewallRule -Name $ruleName -DisplayName $displayName -Direction Inbound
 
     logger.info("Allowed inbound UDP port %s in Windows Firewall", port)
     return True
+
+
+def ensure_receiver_firewall_rule(port: int, logger) -> bool:
+    return _ensure_udp_firewall_rule(
+        port=port,
+        rule_name=f"AudioEthernet-Receiver-UDP-{port}",
+        display_name=f"AudioEthernet receiver UDP {port}",
+        logger=logger,
+    )
+
+
+def ensure_sender_firewall_rule(port: int, logger) -> bool:
+    return _ensure_udp_firewall_rule(
+        port=port,
+        rule_name=f"AudioEthernet-Sender-UDP-{port}",
+        display_name=f"AudioEthernet sender control UDP {port}",
+        logger=logger,
+    )

@@ -1,6 +1,6 @@
 # AudioEthernet
 
-AudioEthernet streams system audio over LAN between Windows PCs. 
+AudioEthernet streams uncompressed PCM system audio over LAN between Windows 11 PCs with low latency, adaptive jitter buffering, and automatic receiver format synchronization.
 
 ## Install
 
@@ -18,45 +18,55 @@ On the receiver PC:
 audioethernet -r
 ```
 
-On the sender PC:
+On the sender PC (regular loopback):
 
 ```bash
 audioethernet -s
 ```
 
-Receiver playback follows the sender's active stream format automatically, so the receiver does not need to match the sender manually.
-Both roles use the same UDP port, so only one port needs to be allowed on the machine.
+On the sender PC for **low-latency unprocessed audio** (via Stereo Mix / WDM-KS monitor source):
 
-## Profiles
+```bash
+audioethernet -s --capture-processing unprocessed --latency-profile low
+```
 
-- `-p safe` is the default. It uses larger buffers and more delay margin to stay stable.
-- `-p low` reduces playback delay while staying inside a safer buffer range.
+Receiver playback follows the sender's active stream format (`sample_rate`, `bit_depth`, `channels`, `frame_ms`) automatically.
+
+## Latency Profiles
+
+Use `--latency-profile` on either side (`balanced` is the default):
+
+- `low`: Smallest WASAPI/WDM-KS device buffers (`10 ms`) and tight adaptive jitter buffer (`2–6` frames, starting at `3`). Best for wired Gigabit Ethernet.
+- `balanced`: Default (`20 ms` device buffers, `3–10` frame jitter buffer, starting at `4`).
+- `stable`: Larger buffers (`40 ms` device buffers, `10 ms` frames, `5–16` frame jitter buffer) for noisier links or Wi-Fi.
 
 Examples:
 
 ```bash
-audioethernet -s -p safe
-audioethernet -s -p low --sample-rate 96000 --bit-depth 24
-audioethernet -r -p low
+# Low-latency unprocessed 24-bit / 48 kHz stream
+audioethernet -s --capture-processing unprocessed --latency-profile low --bit-depth 24
+audioethernet -r --latency-profile low
+
+# Direct unicast connection to a known sender IP (skips broadcast discovery)
+audioethernet -r --target 192.168.1.50 --latency-profile low
+
+# Select specific audio devices by index or name substring
+audioethernet -s --capture-processing unprocessed --capture-device "Stereo Mix"
+audioethernet -r --playback-device "Headphones"
 ```
-
-## Default Behavior
-
-- Sender capture defaults to processed loopback.
-- Receiver defaults to the safe profile.
-- Stereo is used by default.
-- The default sender format is 16-bit, 48000 Hz.
-- The sender and receiver both use UDP port 50482 by default.
-- The receiver tries to allow that single UDP port through Windows Firewall when it starts on Windows with administrator privileges.
-
-## Supported Formats
-
-- Sample rates: 32000, 44100, 48000, 88200, 96000 Hz
-- Bit depths: 16, 24, 32-bit
 
 ## Capture Modes
 
-- `--capture-processing processed` is the default and captures regular Windows loopback audio.
-- `--capture-processing unprocessed` uses Stereo Mix or a similar WDM-KS monitor source. The sender device must be unmuted so the monitor mix actually contains audio.
+- `--capture-processing processed` (default): Captures Windows WASAPI loopback audio from the default output device (or `--capture-device`).
+- `--capture-processing unprocessed`: Captures directly from a Windows WDM-KS monitor input (e.g., Stereo Mix) without Windows APO loopback processing. Keep the sender output unmuted so the monitor mix carries audio. Falls back to processed loopback only if opening the WDM-KS device fails.
+- `--capture-processing auto`: Tries `unprocessed` first and automatically falls back to `processed` if unavailable or silent at startup.
 
-If unprocessed capture is unavailable or silent, the sender can fall back to processed loopback automatically.
+## Supported Formats & Ports
+
+- **Sample rates:** `44100`, `48000`, `96000` Hz
+- **Bit depths:** `16`, `24`, `32`-bit (stereo; `24`-bit is MSB-aligned in a 32-bit container)
+- **Frame durations:** `2`, `5`, `10`, `20` ms
+- **UDP ports:**
+  - Control / discovery: `50481` (`--control-port`) on the sender
+  - Audio data: `50482` (`--data-port`) on the receiver
+- When launched with administrator privileges on Windows, the sender opens inbound UDP `50481` and the receiver opens inbound UDP `50482` in Windows Defender Firewall automatically.

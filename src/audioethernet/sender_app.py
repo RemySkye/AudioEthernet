@@ -10,6 +10,7 @@ import psutil
 from .audio_capture import LoopbackCapture
 from .config import StreamConfig
 from .discovery import SenderDiscoveryService
+from .firewall import ensure_sender_firewall_rule
 from .metrics import RuntimeMetrics
 from .protocol import pack_audio_packet, pack_heartbeat
 from .transport_udp import UDPSender
@@ -21,7 +22,9 @@ class SenderApp:
         self._logger = logger
         self._metrics = RuntimeMetrics()
         self._stop_event = threading.Event()
+        self._fatal_error: Exception | None = None
 
+        assert self._config.queue_max_frames is not None
         self._audio_queue: queue.Queue[tuple[bytes, int]] = queue.Queue(
             maxsize=self._config.queue_max_frames
         )
@@ -34,6 +37,7 @@ class SenderApp:
             config=self._config,
             on_frame=self._on_audio_frame,
             logger=self._logger,
+            on_error=self._on_capture_error,
         )
         self._discovery = SenderDiscoveryService(
             self._config,
@@ -51,13 +55,15 @@ class SenderApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s",
+            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s, profile=%s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.frame_ms,
             self._config.capture_processing,
+            self._config.latency_profile,
         )
 
+        ensure_sender_firewall_rule(self._config.control_port, self._logger)
         self._discovery.start()
         self._capture.start()
 
@@ -77,7 +83,8 @@ class SenderApp:
 
         try:
             while not self._stop_event.wait(0.25):
-                pass
+                if self._fatal_error is not None:
+                    raise RuntimeError("Sender capture failed") from self._fatal_error
         finally:
             self.stop()
 
@@ -96,6 +103,10 @@ class SenderApp:
 
         self._sender.close()
         self._logger.info("Sender stopped")
+
+    def _on_capture_error(self, exc: Exception) -> None:
+        self._fatal_error = exc
+        self._stop_event.set()
 
     def _on_receiver_discover(self, receiver_ip: str, receiver_port: int) -> None:
         key = (receiver_ip, receiver_port)
@@ -128,6 +139,7 @@ class SenderApp:
 
     def _active_targets(self) -> list[tuple[str, int]]:
         now = time.monotonic()
+        assert self._config.sender_peer_timeout_seconds is not None
         timeout = self._config.sender_peer_timeout_seconds
         active: list[tuple[str, int]] = []
         stale: list[tuple[str, int]] = []
@@ -141,10 +153,14 @@ class SenderApp:
             for target in stale:
                 del self._targets[target]
 
+        for target in stale:
+            self._logger.info("Receiver %s:%s timed out", target[0], target[1])
+
         return active
 
     def _send_loop(self) -> None:
         last_heartbeat = 0.0
+        assert self._config.heartbeat_seconds is not None
 
         while not self._stop_event.is_set():
             active_targets = self._active_targets()
@@ -166,10 +182,18 @@ class SenderApp:
                         timestamp_samples=self._timestamp_samples,
                     )
                     for target in active_targets:
-                        self._sender.send(heartbeat, target)
-                        self._metrics.inc_packets_sent(1)
+                        if self._sender.send(heartbeat, target):
+                            self._metrics.inc_packets_sent(1)
                     self._sequence = (self._sequence + 1) & 0xFFFFFFFF
                     last_heartbeat = now
+                continue
+
+            if not active_targets:
+                # Keep sequence/timestamp advancing smoothly even with no connected targets.
+                self._sequence = (self._sequence + 1) & 0xFFFFFFFF
+                self._timestamp_samples = (
+                    self._timestamp_samples + frame_samples
+                ) & 0xFFFFFFFFFFFFFFFF
                 continue
 
             packet = pack_audio_packet(
@@ -183,11 +207,13 @@ class SenderApp:
             )
 
             for target in active_targets:
-                self._sender.send(packet, target)
-                self._metrics.inc_packets_sent(1)
+                if self._sender.send(packet, target):
+                    self._metrics.inc_packets_sent(1)
 
             self._sequence = (self._sequence + 1) & 0xFFFFFFFF
-            self._timestamp_samples += frame_samples
+            self._timestamp_samples = (
+                self._timestamp_samples + frame_samples
+            ) & 0xFFFFFFFFFFFFFFFF
 
     def _metrics_loop(self) -> None:
         while not self._stop_event.wait(10.0):

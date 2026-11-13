@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import socket
 import threading
@@ -7,7 +8,10 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+import psutil
+
 from .config import StreamConfig
+from .transport_udp import configure_udp_socket
 
 DISCOVER_MESSAGE = "discover"
 OFFER_MESSAGE = "offer"
@@ -33,6 +37,41 @@ def _safe_json_parse(payload: bytes) -> Optional[dict]:
     return obj
 
 
+def _get_broadcast_addresses() -> list[str]:
+    addresses: list[str] = []
+    seen: set[str] = set()
+
+    try:
+        stats = psutil.net_if_stats()
+        addrs_by_if = psutil.net_if_addrs()
+    except OSError:
+        return ["255.255.255.255"]
+
+    for iface, addr_list in addrs_by_if.items():
+        if_stat = stats.get(iface)
+        if if_stat is not None and not if_stat.isup:
+            continue
+        for addr in addr_list:
+            if addr.family != socket.AF_INET or not addr.address:
+                continue
+            if addr.address.startswith("127.") or addr.address.startswith("169.254."):
+                continue
+            if not addr.netmask:
+                continue
+            try:
+                net = ipaddress.IPv4Interface(f"{addr.address}/{addr.netmask}").network
+                bcast = str(net.broadcast_address)
+            except ValueError:
+                continue
+            if bcast not in seen:
+                seen.add(bcast)
+                addresses.append(bcast)
+
+    if "255.255.255.255" not in seen:
+        addresses.append("255.255.255.255")
+    return addresses
+
+
 class SenderDiscoveryService:
     def __init__(
         self,
@@ -46,24 +85,34 @@ class SenderDiscoveryService:
 
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        configure_udp_socket(self._sock)
         self._sock.bind(("", self._config.control_port))
         self._sock.settimeout(0.5)
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._run, name="discovery-sender", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="discovery-sender", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
         self._stop_event.set()
+        try:
+            self._sock.close()
+        except OSError:
+            pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
-        self._sock.close()
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
                 data, addr = self._sock.recvfrom(4096)
             except socket.timeout:
+                continue
+            except OSError:
+                if self._stop_event.is_set():
+                    break
                 continue
 
             message = _safe_json_parse(data)
@@ -74,8 +123,11 @@ class SenderDiscoveryService:
             if message.get("type") != DISCOVER_MESSAGE:
                 continue
 
-            receiver_port = int(message.get("data_port", 0))
-            if not receiver_port:
+            try:
+                receiver_port = int(message.get("data_port", 0))
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= receiver_port <= 65535:
                 continue
 
             receiver_ip = addr[0]
@@ -90,7 +142,10 @@ class SenderDiscoveryService:
                 "channels": self._config.channels,
                 "ts": time.time(),
             }
-            self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
+            try:
+                self._sock.sendto(json.dumps(offer).encode("utf-8"), addr)
+            except OSError:
+                continue
 
 
 class ReceiverDiscoveryClient:
@@ -99,13 +154,17 @@ class ReceiverDiscoveryClient:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        configure_udp_socket(self._sock)
         self._sock.bind(("", 0))
-        self._sock.settimeout(0.4)
+        self._sock.settimeout(0.25)
 
     def close(self) -> None:
-        self._sock.close()
+        try:
+            self._sock.close()
+        except OSError:
+            pass
 
-    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
+    def _build_discover_payload(self) -> bytes:
         discover = {
             "tag": PROTOCOL_TAG,
             "type": DISCOVER_MESSAGE,
@@ -113,10 +172,28 @@ class ReceiverDiscoveryClient:
             "data_port": self._config.data_port,
             "ts": time.time(),
         }
-        self._sock.sendto(
-            json.dumps(discover).encode("utf-8"),
-            ("255.255.255.255", self._config.control_port),
-        )
+        return json.dumps(discover).encode("utf-8")
+
+    def send_keepalive(self, sender_ip: str) -> None:
+        payload = self._build_discover_payload()
+        try:
+            self._sock.sendto(payload, (sender_ip, self._config.control_port))
+        except OSError:
+            pass
+
+    def discover_once(self, timeout_seconds: float = 1.0) -> Optional[SenderOffer]:
+        payload = self._build_discover_payload()
+
+        if self._config.target_ip:
+            targets = [self._config.target_ip]
+        else:
+            targets = _get_broadcast_addresses()
+
+        for target in targets:
+            try:
+                self._sock.sendto(payload, (target, self._config.control_port))
+            except OSError:
+                continue
 
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
@@ -124,6 +201,8 @@ class ReceiverDiscoveryClient:
                 data, addr = self._sock.recvfrom(4096)
             except socket.timeout:
                 continue
+            except OSError:
+                return None
 
             message = _safe_json_parse(data)
             if not message:
@@ -133,12 +212,26 @@ class ReceiverDiscoveryClient:
             if message.get("type") != OFFER_MESSAGE:
                 continue
 
+            sender_name = str(message.get("sender_name", "unknown"))
+            if (
+                self._config.sender_name
+                and self._config.sender_name.lower() not in sender_name.lower()
+            ):
+                continue
+
+            try:
+                sample_rate = int(message.get("sample_rate", 0))
+                bit_depth = int(message.get("bit_depth", 0))
+                channels = int(message.get("channels", 0))
+            except (TypeError, ValueError):
+                continue
+
             return SenderOffer(
                 sender_ip=addr[0],
-                sender_name=str(message.get("sender_name", "unknown")),
-                sample_rate=int(message.get("sample_rate", 0)),
-                bit_depth=int(message.get("bit_depth", 0)),
-                channels=int(message.get("channels", 0)),
+                sender_name=sender_name,
+                sample_rate=sample_rate,
+                bit_depth=bit_depth,
+                channels=channels,
             )
 
         return None
