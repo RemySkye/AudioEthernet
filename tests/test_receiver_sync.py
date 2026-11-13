@@ -115,3 +115,29 @@ def test_receiver_applies_sender_stream_format(monkeypatch) -> None:
     app._apply_stream_format(sender_format)
     assert len(FakeJitterBuffer.instances) == initial_buffer_count + 1
     assert FakePlayback.instances[-1].formats == [sender_format]
+
+
+def test_receiver_adopts_sender_latency_profile(monkeypatch) -> None:
+    FakePlayback.instances.clear()
+    FakeJitterBuffer.instances.clear()
+
+    monkeypatch.setattr(receiver_app, "ReceiverDiscoveryClient", FakeDiscovery)
+    monkeypatch.setattr(receiver_app, "UDPReceiver", FakeUDPReceiver)
+    monkeypatch.setattr(receiver_app, "AudioPlayback", FakePlayback)
+    monkeypatch.setattr(receiver_app, "AdaptiveJitterBuffer", FakeJitterBuffer)
+
+    # Receiver starts with default balanced profile without user flags
+    config = StreamConfig(role="receiver")
+    app = receiver_app.ReceiverApp(config, DummyLogger())
+
+    sender_format = StreamFormat(
+        channels=2,
+        bit_depth=24,
+        sample_rate=48000,
+        frame_samples=240,
+        latency_profile="low",
+    )
+    app._apply_stream_format(sender_format)
+
+    assert FakeJitterBuffer.instances[-1].latency_profile == "low"
+    assert FakePlayback.instances[-1].formats[-1].latency_profile == "low"

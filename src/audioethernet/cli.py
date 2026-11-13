@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--latency-profile",
         default="balanced",
         choices=["low", "balanced", "stable"],
-        help="Latency and jitter buffer profile (default: balanced)",
+        help="Sender: latency and jitter buffer profile (default: balanced). Receivers follow the sender automatically.",
     )
     parser.add_argument(
         "--control-port",

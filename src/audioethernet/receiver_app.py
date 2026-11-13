@@ -64,11 +64,8 @@ class ReceiverApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Receiver starting with %s-bit %s Hz, frame %s ms, profile=%s",
-            self._config.bit_depth,
-            self._config.sample_rate,
-            self._config.frame_ms,
-            self._config.latency_profile,
+            "Receiver starting on UDP port %s (waiting for sender format and latency profile)",
+            self._config.data_port,
         )
 
         ensure_receiver_firewall_rule(self._config.data_port, self._logger)
@@ -139,6 +136,7 @@ class ReceiverApp:
 
     def _apply_stream_format(self, stream_format: StreamFormat) -> None:
         assert self._config.queue_max_frames is not None
+        effective_profile = stream_format.latency_profile or self._config.latency_profile
         with self._state_lock:
             if stream_format == self._stream_format:
                 return
@@ -146,17 +144,18 @@ class ReceiverApp:
             self._stream_format = stream_format
             self._jitter = AdaptiveJitterBuffer(
                 frame_bytes=stream_format.frame_bytes,
-                latency_profile=self._config.latency_profile,
+                latency_profile=effective_profile,
                 max_frames=self._config.queue_max_frames,
             )
 
         self._playback.set_stream_format(stream_format)
         self._logger.info(
-            "Receiver synced to sender stream %s Hz, %s-bit, %s channels, frame %s samples",
+            "Receiver synced to sender stream %s Hz, %s-bit, %s channels, frame %s samples, profile=%s",
             stream_format.sample_rate,
             stream_format.bit_depth,
             stream_format.channels,
             stream_format.frame_samples,
+            effective_profile,
         )
 
     def _set_connected(self, sender_ip: str) -> None:

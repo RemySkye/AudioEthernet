@@ -1,5 +1,7 @@
 import socket
+from types import SimpleNamespace
 
+import audioethernet.discovery as discovery
 from audioethernet.config import StreamConfig
 from audioethernet.discovery import ReceiverDiscoveryClient, SenderDiscoveryService
 from audioethernet.transport_udp import UDPReceiver, UDPSender
@@ -76,3 +78,50 @@ def test_udp_sender_and_receiver_round_trip() -> None:
     finally:
         sender.close()
         receiver.close()
+
+
+def test_broadcast_addresses_prefer_physical_ethernet(monkeypatch) -> None:
+    fake_stats = {
+        "Tailscale": SimpleNamespace(isup=True, speed=100),
+        "vEthernet (Default Switch)": SimpleNamespace(isup=True, speed=10000),
+        "Wi-Fi": SimpleNamespace(isup=True, speed=866),
+        "Ethernet 3": SimpleNamespace(isup=True, speed=1000),
+    }
+    fake_addrs = {
+        "Tailscale": [
+            SimpleNamespace(
+                family=socket.AF_INET,
+                address="100.117.157.54",
+                netmask="255.255.255.255",
+            )
+        ],
+        "vEthernet (Default Switch)": [
+            SimpleNamespace(
+                family=socket.AF_INET,
+                address="172.17.16.1",
+                netmask="255.255.240.0",
+            )
+        ],
+        "Wi-Fi": [
+            SimpleNamespace(
+                family=socket.AF_INET,
+                address="192.168.1.42",
+                netmask="255.255.255.0",
+            )
+        ],
+        "Ethernet 3": [
+            SimpleNamespace(
+                family=socket.AF_INET,
+                address="192.168.0.1",
+                netmask="255.255.255.0",
+            )
+        ],
+    }
+
+    monkeypatch.setattr(discovery.psutil, "net_if_stats", lambda: fake_stats)
+    monkeypatch.setattr(discovery.psutil, "net_if_addrs", lambda: fake_addrs)
+
+    addrs = discovery._get_broadcast_addresses()
+    assert addrs[0] == "192.168.0.255"
+    assert addrs[1] == "192.168.1.255"
+    assert addrs[-1] == "255.255.255.255"

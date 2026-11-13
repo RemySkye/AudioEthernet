@@ -91,3 +91,19 @@ def test_unpack_packet_rejects_invalid_header_values() -> None:
         except ProtocolError:
             raised = True
         assert raised
+
+
+def test_packet_round_trips_latency_profile() -> None:
+    for profile in ("low", "balanced", "stable"):
+        hb = pack_heartbeat(
+            channels=2,
+            bit_depth=24,
+            sample_rate=48000,
+            frame_samples=240,
+            sequence=1,
+            timestamp_samples=0,
+            latency_profile=profile,
+        )
+        unpacked = unpack_packet(hb)
+        assert unpacked.latency_profile == profile
+        assert unpacked.stream_format.latency_profile == profile

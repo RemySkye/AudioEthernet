@@ -180,6 +180,7 @@ class SenderApp:
                         frame_samples=self._config.frame_samples,
                         sequence=self._sequence,
                         timestamp_samples=self._timestamp_samples,
+                        latency_profile=self._config.latency_profile,
                     )
                     for target in active_targets:
                         if self._sender.send(heartbeat, target):
@@ -204,6 +205,7 @@ class SenderApp:
                 sequence=self._sequence,
                 timestamp_samples=self._timestamp_samples,
                 payload=frame_bytes,
+                latency_profile=self._config.latency_profile,
             )
 
             for target in active_targets:

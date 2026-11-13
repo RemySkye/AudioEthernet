@@ -6,7 +6,7 @@ from typing import Callable, Optional
 
 import sounddevice as sd
 
-from .config import StreamConfig
+from .config import PROFILE_SETTINGS, StreamConfig
 from .protocol import StreamFormat
 
 FrameProvider = Callable[[], bytes]
@@ -134,6 +134,10 @@ class AudioPlayback:
 
     def _open_stream(self, stream_format: StreamFormat) -> sd.RawOutputStream:
         device_index = self._resolve_output_device(stream_format.channels)
+        profile_name = stream_format.latency_profile or self._config.latency_profile
+        playback_latency = PROFILE_SETTINGS.get(
+            profile_name, self._config.profile_settings
+        ).playback_latency_seconds
         return sd.RawOutputStream(
             device=device_index,
             samplerate=stream_format.sample_rate,
@@ -141,7 +145,7 @@ class AudioPlayback:
             channels=stream_format.channels,
             dtype=self._dtype_for_bit_depth(stream_format.bit_depth),
             callback=self._audio_callback,
-            latency=self._config.profile_settings.playback_latency_seconds,
+            latency=playback_latency,
         )
 
     @staticmethod

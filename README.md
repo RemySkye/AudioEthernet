@@ -32,9 +32,9 @@ audioethernet -s --capture-processing unprocessed --latency-profile low
 
 Receiver playback follows the sender's active stream format (`sample_rate`, `bit_depth`, `channels`, `frame_ms`) automatically.
 
-## Latency Profiles
+## Latency Profiles (Sender-Controlled)
 
-Use `--latency-profile` on either side (`balanced` is the default):
+The **sender** chooses the stream format and `--latency-profile` (`balanced` is the default), and the **receiver** automatically syncs its playback and jitter buffer to match the sender:
 
 - `low`: Smallest WASAPI/WDM-KS device buffers (`10 ms`) and tight adaptive jitter buffer (`2–6` frames, starting at `3`). Best for wired Gigabit Ethernet.
 - `balanced`: Default (`20 ms` device buffers, `3–10` frame jitter buffer, starting at `4`).
@@ -43,12 +43,14 @@ Use `--latency-profile` on either side (`balanced` is the default):
 Examples:
 
 ```bash
-# Low-latency unprocessed 24-bit / 48 kHz stream
-audioethernet -s --capture-processing unprocessed --latency-profile low --bit-depth 24
-audioethernet -r --latency-profile low
+# Receiver just listens and adapts automatically to whatever the sender sends
+audioethernet -r
 
-# Direct unicast connection to a known sender IP (skips broadcast discovery)
-audioethernet -r --target 192.168.1.50 --latency-profile low
+# Sender: low-latency unprocessed 24-bit / 48 kHz stream
+audioethernet -s --capture-processing unprocessed --latency-profile low --bit-depth 24
+
+# Receiver: direct unicast connection to a known sender IP (skips broadcast discovery)
+audioethernet -r --target 192.168.1.50
 
 # Select specific audio devices by index or name substring
 audioethernet -s --capture-processing unprocessed --capture-device "Stereo Mix"
