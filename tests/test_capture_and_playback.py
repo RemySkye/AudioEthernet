@@ -117,3 +117,25 @@ def test_playback_callback_handles_exact_short_long_and_empty_frames() -> None:
 
     playback._audio_callback(out, 1, None, None)
     assert out == bytearray(b"abcd")
+
+
+def test_playback_prefers_wasapi_default_output(monkeypatch) -> None:
+    import audioethernet.audio_playback as audio_playback
+
+    fake_hostapis = [
+        {"name": "MME", "default_output_device": 0},
+        {"name": "Windows WASAPI", "default_output_device": 1},
+    ]
+    fake_devices = [
+        {"name": "Speakers (Realtek)", "max_output_channels": 2, "hostapi": 0},
+        {"name": "Speakers (Realtek)", "max_output_channels": 2, "hostapi": 1},
+    ]
+    monkeypatch.setattr(audio_playback.sd, "query_hostapis", lambda: fake_hostapis)
+    monkeypatch.setattr(audio_playback.sd, "query_devices", lambda: fake_devices)
+
+    playback = AudioPlayback(
+        config=StreamConfig(role="receiver"),
+        frame_provider=lambda: b"",
+        logger=DummyLogger(),
+    )
+    assert playback._resolve_output_device(2) == (1, True)

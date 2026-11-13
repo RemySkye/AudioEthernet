@@ -103,41 +103,59 @@ class AudioPlayback:
             except sd.PortAudioError:
                 pass
 
-    def _resolve_output_device(self, channels: int) -> Optional[int]:
+    def _resolve_output_device(self, channels: int) -> tuple[Optional[int], bool]:
+        devices = sd.query_devices()
+        hostapis = sd.query_hostapis()
+
         requested = (
             self._config.playback_device.strip()
             if self._config.playback_device
             else None
         )
         if requested is None:
-            return None
+            for hostapi in hostapis:
+                if str(hostapi.get("name", "")) == "Windows WASAPI":
+                    default_idx = int(hostapi.get("default_output_device", -1))
+                    if 0 <= default_idx < len(devices):
+                        if int(devices[default_idx]["max_output_channels"]) >= channels:
+                            return default_idx, True
+            return None, False
 
-        devices = sd.query_devices()
         if requested.isdigit():
             idx = int(requested)
             if 0 <= idx < len(devices):
                 if int(devices[idx]["max_output_channels"]) >= channels:
-                    return idx
+                    hostapi_name = str(hostapis[int(devices[idx]["hostapi"])]["name"])
+                    return idx, hostapi_name == "Windows WASAPI"
                 raise RuntimeError(
                     f"Playback device {idx} does not support {channels} output channels"
                 )
             raise RuntimeError(f"Playback device index {idx} out of range")
 
         needle = requested.lower()
-        for index, device in enumerate(devices):
-            if int(device["max_output_channels"]) < channels:
-                continue
-            if needle in str(device["name"]).lower():
-                return index
+        for prefer_wasapi in (True, False):
+            for index, device in enumerate(devices):
+                if int(device["max_output_channels"]) < channels:
+                    continue
+                hostapi_name = str(hostapis[int(device["hostapi"])]["name"])
+                if prefer_wasapi and hostapi_name != "Windows WASAPI":
+                    continue
+                if needle in str(device["name"]).lower():
+                    return index, hostapi_name == "Windows WASAPI"
 
         raise RuntimeError(f"Could not find output playback device matching '{requested}'")
 
     def _open_stream(self, stream_format: StreamFormat) -> sd.RawOutputStream:
-        device_index = self._resolve_output_device(stream_format.channels)
+        device_index, is_wasapi = self._resolve_output_device(stream_format.channels)
         profile_name = stream_format.latency_profile or self._config.latency_profile
         playback_latency = PROFILE_SETTINGS.get(
             profile_name, self._config.profile_settings
         ).playback_latency_seconds
+        extra_settings = (
+            sd.WasapiSettings(auto_convert=True)
+            if is_wasapi and hasattr(sd, "WasapiSettings")
+            else None
+        )
         return sd.RawOutputStream(
             device=device_index,
             samplerate=stream_format.sample_rate,
@@ -146,6 +164,7 @@ class AudioPlayback:
             dtype=self._dtype_for_bit_depth(stream_format.bit_depth),
             callback=self._audio_callback,
             latency=playback_latency,
+            extra_settings=extra_settings,
         )
 
     @staticmethod
