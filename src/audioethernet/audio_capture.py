@@ -453,16 +453,19 @@ class LoopbackCapture:
             hr = ole32.CoInitializeEx(None, 0x0)
             should_uninit = hr in (0, 1)
 
+        speaker_name = ""
         try:
             speaker = sc.default_speaker()
+            if speaker is not None:
+                speaker_name = speaker.name
         finally:
             if should_uninit and ole32 is not None:
                 ole32.CoUninitialize()
 
-        if speaker is None:
+        if not speaker_name:
             return []
 
-        raw_tokens = re.split(r"[^a-z0-9]+", speaker.name.lower())
+        raw_tokens = re.split(r"[^a-z0-9]+", speaker_name.lower())
         return [
             token
             for token in raw_tokens
