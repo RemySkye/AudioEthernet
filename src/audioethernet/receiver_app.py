@@ -44,6 +44,10 @@ class ReceiverApp:
             latency_profile=self._config.latency_profile,
             max_frames=self._config.queue_max_frames,
         )
+        if hasattr(self._jitter, "configure_timing"):
+            self._jitter.configure_timing(
+                self._stream_format.frame_samples / self._stream_format.sample_rate
+            )
 
         self._playback = AudioPlayback(
             config=self._config,
@@ -147,6 +151,10 @@ class ReceiverApp:
                 latency_profile=effective_profile,
                 max_frames=self._config.queue_max_frames,
             )
+            if hasattr(self._jitter, "configure_timing"):
+                self._jitter.configure_timing(
+                    stream_format.frame_samples / stream_format.sample_rate
+                )
 
         self._playback.set_stream_format(stream_format)
         self._logger.info(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import psutil
 
@@ -14,6 +14,22 @@ from .firewall import ensure_sender_firewall_rule
 from .metrics import RuntimeMetrics
 from .protocol import pack_audio_packet, pack_heartbeat
 from .transport_udp import UDPSender
+
+MAX_UDP_AUDIO_PAYLOAD = 1400
+
+
+def compute_chunk_samples(frame_samples: int, bytes_per_frame_sample: int) -> int:
+    if frame_samples <= 0 or bytes_per_frame_sample <= 0:
+        return frame_samples
+    max_samples = max(1, MAX_UDP_AUDIO_PAYLOAD // bytes_per_frame_sample)
+    if frame_samples <= max_samples:
+        return frame_samples
+
+    min_chunks = (frame_samples + max_samples - 1) // max_samples
+    for chunks in range(min_chunks, frame_samples + 1):
+        if frame_samples % chunks == 0:
+            return frame_samples // chunks
+    return max_samples
 
 
 class SenderApp:
@@ -30,7 +46,15 @@ class SenderApp:
         )
 
         self._targets: Dict[Tuple[str, int], float] = {}
+        self._receiver_ids: Dict[str, Tuple[str, int]] = {}
         self._targets_lock = threading.Lock()
+
+        self._bytes_per_frame_sample = (
+            self._config.channels * self._config.bytes_per_sample
+        )
+        self._chunk_samples = compute_chunk_samples(
+            self._config.frame_samples, self._bytes_per_frame_sample
+        )
 
         self._sender = UDPSender()
         self._capture = LoopbackCapture(
@@ -55,10 +79,11 @@ class SenderApp:
 
     def run_forever(self) -> None:
         self._logger.info(
-            "Sender starting with %s-bit %s Hz, frame %s ms, capture=%s, profile=%s",
+            "Sender starting with %s-bit %s Hz, frame %s ms (packet %s samples), capture=%s, profile=%s",
             self._config.bit_depth,
             self._config.sample_rate,
             self._config.frame_ms,
+            self._chunk_samples,
             self._config.capture_processing,
             self._config.latency_profile,
         )
@@ -108,11 +133,28 @@ class SenderApp:
         self._fatal_error = exc
         self._stop_event.set()
 
-    def _on_receiver_discover(self, receiver_ip: str, receiver_port: int) -> None:
+    def _on_receiver_discover(
+        self,
+        receiver_ip: str,
+        receiver_port: int,
+        receiver_id: Optional[str] = None,
+    ) -> None:
         key = (receiver_ip, receiver_port)
+        now = time.monotonic()
         with self._targets_lock:
+            if receiver_id:
+                existing = self._receiver_ids.get(receiver_id)
+                if (
+                    existing is not None
+                    and existing != key
+                    and existing in self._targets
+                ):
+                    # Keep the primary NIC path for this receiver instance while active.
+                    return
+                self._receiver_ids[receiver_id] = key
+
             first_seen = key not in self._targets
-            self._targets[key] = time.monotonic()
+            self._targets[key] = now
 
         if first_seen:
             self._logger.info(
@@ -152,6 +194,14 @@ class SenderApp:
                     stale.append(target)
             for target in stale:
                 del self._targets[target]
+            if stale:
+                stale_set = set(stale)
+                for rid in [
+                    rid
+                    for rid, tgt in self._receiver_ids.items()
+                    if tgt in stale_set
+                ]:
+                    del self._receiver_ids[rid]
 
         for target in stale:
             self._logger.info("Receiver %s:%s timed out", target[0], target[1])
@@ -177,7 +227,7 @@ class SenderApp:
                         channels=self._config.channels,
                         bit_depth=self._config.bit_depth,
                         sample_rate=self._config.sample_rate,
-                        frame_samples=self._config.frame_samples,
+                        frame_samples=self._chunk_samples,
                         sequence=self._sequence,
                         timestamp_samples=self._timestamp_samples,
                         latency_profile=self._config.latency_profile,
@@ -189,33 +239,36 @@ class SenderApp:
                     last_heartbeat = now
                 continue
 
-            if not active_targets:
-                # Keep sequence/timestamp advancing smoothly even with no connected targets.
+            chunk_samples = compute_chunk_samples(
+                frame_samples, self._bytes_per_frame_sample
+            )
+            offset_samples = 0
+            while offset_samples < frame_samples:
+                part_samples = min(chunk_samples, frame_samples - offset_samples)
+                start_byte = offset_samples * self._bytes_per_frame_sample
+                end_byte = start_byte + (part_samples * self._bytes_per_frame_sample)
+                chunk_bytes = frame_bytes[start_byte:end_byte]
+
+                if active_targets:
+                    packet = pack_audio_packet(
+                        channels=self._config.channels,
+                        bit_depth=self._config.bit_depth,
+                        sample_rate=self._config.sample_rate,
+                        frame_samples=part_samples,
+                        sequence=self._sequence,
+                        timestamp_samples=self._timestamp_samples,
+                        payload=chunk_bytes,
+                        latency_profile=self._config.latency_profile,
+                    )
+                    for target in active_targets:
+                        if self._sender.send(packet, target):
+                            self._metrics.inc_packets_sent(1)
+
                 self._sequence = (self._sequence + 1) & 0xFFFFFFFF
                 self._timestamp_samples = (
-                    self._timestamp_samples + frame_samples
+                    self._timestamp_samples + part_samples
                 ) & 0xFFFFFFFFFFFFFFFF
-                continue
-
-            packet = pack_audio_packet(
-                channels=self._config.channels,
-                bit_depth=self._config.bit_depth,
-                sample_rate=self._config.sample_rate,
-                frame_samples=frame_samples,
-                sequence=self._sequence,
-                timestamp_samples=self._timestamp_samples,
-                payload=frame_bytes,
-                latency_profile=self._config.latency_profile,
-            )
-
-            for target in active_targets:
-                if self._sender.send(packet, target):
-                    self._metrics.inc_packets_sent(1)
-
-            self._sequence = (self._sequence + 1) & 0xFFFFFFFF
-            self._timestamp_samples = (
-                self._timestamp_samples + frame_samples
-            ) & 0xFFFFFFFFFFFFFFFF
+                offset_samples += part_samples
 
     def _metrics_loop(self) -> None:
         while not self._stop_event.wait(10.0):

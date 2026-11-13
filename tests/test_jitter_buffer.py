@@ -103,3 +103,13 @@ def test_jitter_buffer_adapts_target_on_underrun_and_stable_playback() -> None:
             buf.pop()
 
     assert buf.target_frames() < 4
+
+
+def test_jitter_buffer_scales_timing_for_chunked_subframes() -> None:
+    buf = AdaptiveJitterBuffer(
+        frame_bytes=960, latency_profile="low", max_frames=64
+    )
+    assert buf.target_frames() == 3  # 5ms base
+
+    buf.configure_timing(0.0025)  # 2.5ms sub-frame chunks -> 2x frame count
+    assert buf.target_frames() == 6

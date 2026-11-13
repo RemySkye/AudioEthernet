@@ -5,6 +5,7 @@ import json
 import socket
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -108,7 +109,7 @@ class SenderDiscoveryService:
     def __init__(
         self,
         config: StreamConfig,
-        on_receiver_discover: Callable[[str, int], None],
+        on_receiver_discover: Callable[..., None],
     ) -> None:
         self._config = config
         self._on_receiver_discover = on_receiver_discover
@@ -163,7 +164,16 @@ class SenderDiscoveryService:
                 continue
 
             receiver_ip = addr[0]
-            self._on_receiver_discover(receiver_ip, receiver_port)
+            receiver_id = message.get("receiver_id")
+            if receiver_id is not None:
+                try:
+                    self._on_receiver_discover(
+                        receiver_ip, receiver_port, str(receiver_id)
+                    )
+                except TypeError:
+                    self._on_receiver_discover(receiver_ip, receiver_port)
+            else:
+                self._on_receiver_discover(receiver_ip, receiver_port)
 
             offer = {
                 "tag": PROTOCOL_TAG,
@@ -184,6 +194,7 @@ class SenderDiscoveryService:
 class ReceiverDiscoveryClient:
     def __init__(self, config: StreamConfig) -> None:
         self._config = config
+        self._receiver_id = uuid.uuid4().hex[:12]
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -201,6 +212,7 @@ class ReceiverDiscoveryClient:
         discover = {
             "tag": PROTOCOL_TAG,
             "type": DISCOVER_MESSAGE,
+            "receiver_id": self._receiver_id,
             "receiver_name": self._config.endpoint_name,
             "data_port": self._config.data_port,
             "ts": time.time(),

@@ -33,6 +33,12 @@ class AdaptiveJitterBuffer:
         settings = profile_settings or PROFILE_SETTINGS.get(
             latency_profile, PROFILE_SETTINGS["balanced"]
         )
+        self._profile_frame_ms = settings.frame_ms
+        self._base_min_target_frames = settings.jitter_min_frames
+        self._base_initial_target_frames = settings.jitter_target_frames
+        self._base_max_target_frames = settings.jitter_max_frames
+        self._base_drop_margin = settings.jitter_drop_margin
+
         self._min_target_frames = settings.jitter_min_frames
         self._initial_target_frames = settings.jitter_target_frames
         self._max_target_frames = settings.jitter_max_frames
@@ -52,6 +58,31 @@ class AdaptiveJitterBuffer:
 
         self._lost_packets = 0
         self._late_packets = 0
+
+    def configure_timing(self, frame_duration_seconds: float) -> None:
+        with self._lock:
+            self._frame_duration = max(0.0005, frame_duration_seconds)
+            profile_duration = self._profile_frame_ms / 1000.0
+            scale = max(1.0, profile_duration / self._frame_duration)
+            self._min_target_frames = max(
+                1, int(round(self._base_min_target_frames * scale))
+            )
+            self._initial_target_frames = max(
+                self._min_target_frames,
+                int(round(self._base_initial_target_frames * scale)),
+            )
+            self._max_target_frames = max(
+                self._initial_target_frames,
+                int(round(self._base_max_target_frames * scale)),
+            )
+            self._drop_margin = max(2, int(round(self._base_drop_margin * scale)))
+            if not self._primed:
+                self._target_frames = self._initial_target_frames
+            else:
+                self._target_frames = max(
+                    self._min_target_frames,
+                    min(self._max_target_frames, self._target_frames),
+                )
 
     def reset(self) -> None:
         with self._lock:

@@ -125,3 +125,20 @@ def test_broadcast_addresses_prefer_physical_ethernet(monkeypatch) -> None:
     assert addrs[0] == "192.168.0.255"
     assert addrs[1] == "192.168.1.255"
     assert addrs[-1] == "255.255.255.255"
+
+
+def test_compute_chunk_samples_keeps_payloads_within_mtu() -> None:
+    from audioethernet.sender_app import MAX_UDP_AUDIO_PAYLOAD, compute_chunk_samples
+
+    # 48kHz 16-bit 5ms = 240 samples * 4B = 960B (fits in 1 packet)
+    assert compute_chunk_samples(240, 4) == 240
+
+    # 48kHz 24-bit 5ms = 240 samples * 8B = 1920B -> splits into 2x 120 samples (960B)
+    chunk_24_48 = compute_chunk_samples(240, 8)
+    assert chunk_24_48 == 120
+    assert chunk_24_48 * 8 <= MAX_UDP_AUDIO_PAYLOAD
+
+    # 96kHz 24-bit 20ms = 1920 samples * 8B = 15360B -> splits evenly <= 1400B
+    chunk_24_96 = compute_chunk_samples(1920, 8)
+    assert 1920 % chunk_24_96 == 0
+    assert chunk_24_96 * 8 <= MAX_UDP_AUDIO_PAYLOAD
