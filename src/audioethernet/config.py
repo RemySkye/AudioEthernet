@@ -36,8 +36,8 @@ PROFILE_SETTINGS = {
         reconnect_seconds=0.5,
         sender_peer_timeout_seconds=6.0,
         receiver_stream_timeout_seconds=3.0,
-        capture_latency_seconds=0.005,
-        playback_latency_seconds=0.01,
+        capture_latency_seconds=0.02,
+        playback_latency_seconds=0.02,
         jitter_min_frames=3,
         jitter_target_frames=4,
         jitter_max_frames=10,
@@ -50,7 +50,7 @@ PROFILE_SETTINGS = {
         reconnect_seconds=0.75,
         sender_peer_timeout_seconds=8.0,
         receiver_stream_timeout_seconds=4.0,
-        capture_latency_seconds=0.01,
+        capture_latency_seconds=0.02,
         playback_latency_seconds=0.02,
         jitter_min_frames=4,
         jitter_target_frames=6,
@@ -98,6 +98,7 @@ class StreamConfig:
     capture_device: Optional[str] = None
     playback_device: Optional[str] = None
     unprocessed_silence_seconds: float = 3.0
+    keep_local_speakers: bool = False
 
     def __post_init__(self) -> None:
         default_port = 50482

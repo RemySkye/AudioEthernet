@@ -14,6 +14,7 @@ from .firewall import ensure_sender_firewall_rule
 from .metrics import RuntimeMetrics
 from .protocol import pack_audio_packet, pack_heartbeat
 from .transport_udp import UDPSender
+from .virtual_routing import LocalSpeakerMuteGuard
 
 MAX_UDP_AUDIO_PAYLOAD = 1400
 
@@ -38,6 +39,8 @@ class SenderApp:
         self._logger = logger
         self._metrics = RuntimeMetrics()
         self._stop_event = threading.Event()
+        self._cleanup_done = False
+        self._cleanup_lock = threading.Lock()
         self._fatal_error: Exception | None = None
 
         assert self._config.queue_max_frames is not None
@@ -67,6 +70,7 @@ class SenderApp:
             self._config,
             on_receiver_discover=self._on_receiver_discover,
         )
+        self._virtual_routing = LocalSpeakerMuteGuard(self._config, self._logger)
 
         self._send_thread: threading.Thread | None = None
         self._metrics_thread: threading.Thread | None = None
@@ -89,24 +93,25 @@ class SenderApp:
         )
 
         ensure_sender_firewall_rule(self._config.control_port, self._logger)
-        self._discovery.start()
-        self._capture.start()
-
-        self._send_thread = threading.Thread(
-            target=self._send_loop,
-            name="sender-network",
-            daemon=True,
-        )
-        self._send_thread.start()
-
-        self._metrics_thread = threading.Thread(
-            target=self._metrics_loop,
-            name="sender-metrics",
-            daemon=True,
-        )
-        self._metrics_thread.start()
-
         try:
+            self._virtual_routing.activate()
+            self._discovery.start()
+            self._capture.start()
+
+            self._send_thread = threading.Thread(
+                target=self._send_loop,
+                name="sender-network",
+                daemon=True,
+            )
+            self._send_thread.start()
+
+            self._metrics_thread = threading.Thread(
+                target=self._metrics_loop,
+                name="sender-metrics",
+                daemon=True,
+            )
+            self._metrics_thread.start()
+
             while not self._stop_event.wait(0.25):
                 if self._fatal_error is not None:
                     raise RuntimeError("Sender capture failed") from self._fatal_error
@@ -114,11 +119,14 @@ class SenderApp:
             self.stop()
 
     def stop(self) -> None:
-        if self._stop_event.is_set():
-            return
         self._stop_event.set()
+        with self._cleanup_lock:
+            if self._cleanup_done:
+                return
+            self._cleanup_done = True
 
         self._capture.stop()
+        self._virtual_routing.restore()
         self._discovery.stop()
 
         if self._send_thread and self._send_thread.is_alive():

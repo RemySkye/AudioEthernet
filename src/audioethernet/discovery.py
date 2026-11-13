@@ -295,9 +295,18 @@ class ReceiverDiscoveryClient:
             except OSError:
                 continue
 
-            slice_deadline = min(overall_deadline, now + per_target_slice)
             if idx == len(targets) - 1:
                 slice_deadline = overall_deadline
+            elif idx == 0:
+                primary_slice = max(per_target_slice, timeout_seconds * 0.65)
+                slice_deadline = min(overall_deadline, now + primary_slice)
+            else:
+                remaining_targets = len(targets) - idx
+                remaining_slice = max(
+                    0.15, (overall_deadline - now) / remaining_targets
+                )
+                slice_deadline = min(overall_deadline, now + remaining_slice)
+
             offer = self._recv_matching_offer(slice_deadline)
             if offer is not None:
                 return offer

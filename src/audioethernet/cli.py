@@ -134,6 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Auto tries unprocessed first and falls back to processed if unavailable or silent."
         ),
     )
+    parser.add_argument(
+        "--keep-local-speakers",
+        action="store_true",
+        help=(
+            "Keep hardware speakers as the Windows default output in unprocessed mode "
+            "instead of temporarily switching to a virtual cable (muting hardware speakers silences Stereo Mix)."
+        ),
+    )
 
     return parser
 
@@ -182,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         sender_name=args.sender_name,
         capture_device=args.capture_device,
         playback_device=args.playback_device,
+        keep_local_speakers=args.keep_local_speakers,
     )
     config.validate()
 

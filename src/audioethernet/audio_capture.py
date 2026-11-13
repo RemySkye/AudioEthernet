@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import re
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional
 
 import numpy as np
 import soundcard as sc
@@ -170,44 +171,75 @@ class LoopbackCapture:
 
                 self._on_frame(frame, target_frames)
 
-        with sd.RawInputStream(
-            device=device_index,
-            samplerate=self._config.sample_rate,
-            channels=self._config.channels,
-            blocksize=0,
-            dtype=self._config.sounddevice_dtype,
-            callback=callback,
-            latency=self._config.profile_settings.capture_latency_seconds,
-        ):
-            self._started_event.set()
-            while not self._stop_event.wait(0.2):
-                if callback_status_warnings:
-                    now = time.monotonic()
-                    if now - last_status_log >= 5.0:
+        try:
+            with self._open_unprocessed_stream(
+                device_index=device_index,
+                target_frames=target_frames,
+                callback=callback,
+            ):
+                self._started_event.set()
+                while not self._stop_event.wait(0.2):
+                    if callback_status_warnings:
+                        now = time.monotonic()
+                        if now - last_status_log >= 5.0:
+                            self._logger.warning(
+                                "Capture status warnings observed: %s",
+                                callback_status_warnings,
+                            )
+                            callback_status_warnings = 0
+                            last_status_log = now
+
+                    if (
+                        not abort_on_silence
+                        and not startup_non_silent_seen
+                        and not startup_silence_warned
+                        and startup_silent_frames >= startup_silent_limit
+                    ):
+                        startup_silence_warned = True
                         self._logger.warning(
-                            "Capture status warnings observed: %s",
-                            callback_status_warnings,
+                            "Unprocessed capture has seen only silence for %.1fs; "
+                            "make sure the sender output is unmuted and audio is playing.",
+                            self._config.unprocessed_silence_seconds,
                         )
-                        callback_status_warnings = 0
-                        last_status_log = now
 
-                if (
-                    not abort_on_silence
-                    and not startup_non_silent_seen
-                    and not startup_silence_warned
-                    and startup_silent_frames >= startup_silent_limit
-                ):
-                    startup_silence_warned = True
-                    self._logger.warning(
-                        "Unprocessed capture has seen only silence for %.1fs; "
-                        "make sure the sender output is unmuted and audio is playing.",
-                        self._config.unprocessed_silence_seconds,
-                    )
+                    if fallback_to_processed:
+                        raise RuntimeError(
+                            "startup monitor source stayed silent (likely mute-gated)"
+                        )
+        except sd.PortAudioError:
+            raise
 
-                if fallback_to_processed:
-                    raise RuntimeError(
-                        "startup monitor source stayed silent (likely mute-gated)"
-                    )
+    @contextlib.contextmanager
+    def _open_unprocessed_stream(
+        self,
+        *,
+        device_index: int,
+        target_frames: int,
+        callback,
+    ) -> Iterator[sd.RawInputStream]:
+        try:
+            stream = sd.RawInputStream(
+                device=device_index,
+                samplerate=self._config.sample_rate,
+                channels=self._config.channels,
+                blocksize=target_frames,
+                dtype=self._config.sounddevice_dtype,
+                callback=callback,
+                latency=self._config.profile_settings.capture_latency_seconds,
+            )
+        except sd.PortAudioError:
+            stream = sd.RawInputStream(
+                device=device_index,
+                samplerate=self._config.sample_rate,
+                channels=self._config.channels,
+                blocksize=0,
+                dtype=self._config.sounddevice_dtype,
+                callback=callback,
+                latency=self._config.profile_settings.capture_latency_seconds,
+            )
+
+        with stream:
+            yield stream
 
     def _select_processed_microphone(self):
         if self._config.capture_device:
@@ -378,11 +410,6 @@ class LoopbackCapture:
                 "No Windows WDM-KS input device is available for unprocessed capture"
             )
 
-        for index, name in candidates:
-            lowered = name.lower()
-            if any(hint in lowered for hint in UNPROCESSED_NAME_HINTS):
-                return index, name
-
         speaker_tokens = self._default_speaker_tokens()
         if speaker_tokens:
             best_score = 0
@@ -396,6 +423,11 @@ class LoopbackCapture:
 
             if best_match is not None:
                 return best_match
+
+        for index, name in candidates:
+            lowered = name.lower()
+            if any(hint in lowered for hint in UNPROCESSED_NAME_HINTS):
+                return index, name
 
         raise RuntimeError(
             "Could not find a monitor-style unprocessed input device "

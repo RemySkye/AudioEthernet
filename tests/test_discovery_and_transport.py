@@ -142,3 +142,48 @@ def test_compute_chunk_samples_keeps_payloads_within_mtu() -> None:
     chunk_24_96 = compute_chunk_samples(1920, 8)
     assert 1920 % chunk_24_96 == 0
     assert chunk_24_96 * 8 <= MAX_UDP_AUDIO_PAYLOAD
+
+
+def test_discover_once_gives_primary_broadcast_longer_window(monkeypatch) -> None:
+    monkeypatch.setattr(
+        discovery,
+        "_get_broadcast_addresses",
+        lambda: ["192.168.0.255", "192.168.1.255", "255.255.255.255"],
+    )
+
+    sent: list[tuple[str, float]] = []
+    clock = [100.0]
+    monkeypatch.setattr(discovery.time, "monotonic", lambda: clock[0])
+
+    client = ReceiverDiscoveryClient(StreamConfig(role="receiver", target_ip=None))
+    real_sock = client._sock
+
+    class FakeSock:
+        def sendto(self, _payload: bytes, addr: tuple[str, int]) -> int:
+            sent.append((addr[0], clock[0]))
+            return len(_payload)
+
+        def close(self) -> None:
+            pass
+
+    client._sock = FakeSock()  # type: ignore[assignment]
+    try:
+        deadlines: list[float] = []
+
+        def fake_recv(deadline: float):
+            deadlines.append(deadline - clock[0])
+            clock[0] = deadline
+            return None
+
+        monkeypatch.setattr(client, "_recv_matching_offer", fake_recv)
+        assert client.discover_once(timeout_seconds=1.0) is None
+    finally:
+        real_sock.close()
+        client.close()
+
+    assert [target for target, _ in sent] == [
+        "192.168.0.255",
+        "192.168.1.255",
+        "255.255.255.255",
+    ]
+    assert deadlines[0] >= 0.60

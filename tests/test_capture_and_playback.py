@@ -165,3 +165,77 @@ def test_processed_recorder_emits_paced_silence_when_wasapi_idle() -> None:
     capture._drain_processed_recorder(FakeIdleRecorder(), 240)
     assert len(emitted) >= 3
     assert all(len(d) == 240 * 2 * 2 and n == 240 for d, n in emitted)
+
+
+def test_select_unprocessed_prefers_default_speaker_virtual_cable_pair(monkeypatch) -> None:
+    fake_hostapis = [{"name": "Windows WDM-KS"}]
+    fake_devices = [
+        {
+            "name": "Stereo Mix (Realtek HD Audio Stereo input)",
+            "max_input_channels": 2,
+            "hostapi": 0,
+        },
+        {"name": "CABLE Output (VB-Audio Point)", "max_input_channels": 8, "hostapi": 0},
+    ]
+    monkeypatch.setattr(audio_capture.sd, "query_hostapis", lambda: fake_hostapis)
+    monkeypatch.setattr(audio_capture.sd, "query_devices", lambda: fake_devices)
+
+    class FakeSpeaker:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    cap = LoopbackCapture(
+        config=StreamConfig(role="sender", capture_processing="unprocessed"),
+        on_frame=lambda _b, _n: None,
+        logger=DummyLogger(),
+    )
+
+    # When default speaker is CABLE Input, match CABLE Output instead of Stereo Mix.
+    monkeypatch.setattr(
+        audio_capture.sc,
+        "default_speaker",
+        lambda: FakeSpeaker("CABLE Input (VB-Audio Virtual Cable)"),
+    )
+    assert cap._select_unprocessed_input_device() == (1, "CABLE Output (VB-Audio Point)")
+
+    # When default speaker is Realtek hardware speakers, fall back to Stereo Mix.
+    monkeypatch.setattr(
+        audio_capture.sc,
+        "default_speaker",
+        lambda: FakeSpeaker("Speakers (2- Realtek(R) Audio)"),
+    )
+    assert cap._select_unprocessed_input_device() == (
+        0,
+        "Stereo Mix (Realtek HD Audio Stereo input)",
+    )
+
+
+def test_open_unprocessed_stream_falls_back_to_blocksize_zero(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeStream:
+        def __init__(self, **kwargs) -> None:
+            calls.append(kwargs)
+            if kwargs["blocksize"] != 0:
+                raise audio_capture.sd.PortAudioError("fixed blocksize unsupported")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(audio_capture.sd, "RawInputStream", FakeStream)
+    cap = LoopbackCapture(
+        config=StreamConfig(role="sender", capture_processing="unprocessed"),
+        on_frame=lambda _b, _n: None,
+        logger=DummyLogger(),
+    )
+
+    with cap._open_unprocessed_stream(
+        device_index=27, target_frames=240, callback=lambda *a: None
+    ) as stream:
+        assert isinstance(stream, FakeStream)
+
+    assert [call["blocksize"] for call in calls] == [240, 0]
+    assert all(call["latency"] == 0.02 for call in calls)

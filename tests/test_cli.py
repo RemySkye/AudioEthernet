@@ -26,6 +26,7 @@ def test_help_mentions_latency_profile_and_unprocessed_mode() -> None:
     assert "processed" in help_text
     assert "--target" in help_text
     assert "--capture-device" in help_text
+    assert "--keep-local-speakers" in help_text
 
 
 def test_latency_profile_controls_unspecified_defaults(monkeypatch) -> None:
@@ -50,3 +51,14 @@ def test_latency_profile_controls_unspecified_defaults(monkeypatch) -> None:
     assert cfg.queue_max_frames == 512
     assert cfg.sender_peer_timeout_seconds == 12.0
     assert cfg.capture_processing == "unprocessed"
+    assert cfg.keep_local_speakers is False
+
+    cli.main(
+        [
+            "-s",
+            "--capture-processing",
+            "unprocessed",
+            "--keep-local-speakers",
+        ]
+    )
+    assert captured["config"].keep_local_speakers is True
