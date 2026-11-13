@@ -9,7 +9,7 @@ import psutil
 
 from .audio_capture import LoopbackCapture
 from .config import StreamConfig
-from .discovery import SenderDiscoveryService
+from .discovery import SenderDiscoveryService, peer_interface_priority
 from .firewall import ensure_sender_firewall_rule
 from .metrics import RuntimeMetrics
 from .protocol import pack_audio_packet, pack_heartbeat
@@ -95,8 +95,8 @@ class SenderApp:
         ensure_sender_firewall_rule(self._config.control_port, self._logger)
         try:
             self._virtual_routing.activate()
-            self._discovery.start()
             self._capture.start()
+            self._discovery.start()
 
             self._send_thread = threading.Thread(
                 target=self._send_loop,
@@ -157,8 +157,19 @@ class SenderApp:
                     and existing != key
                     and existing in self._targets
                 ):
-                    # Keep the primary NIC path for this receiver instance while active.
-                    return
+                    new_prio = peer_interface_priority(receiver_ip)
+                    old_prio = peer_interface_priority(existing[0])
+                    if new_prio >= old_prio:
+                        # Keep the higher-priority NIC path for this receiver instance while active.
+                        return
+                    self._targets.pop(existing, None)
+                    self._logger.info(
+                        "Upgrading receiver target path from %s:%s to %s:%s",
+                        existing[0],
+                        existing[1],
+                        receiver_ip,
+                        receiver_port,
+                    )
                 self._receiver_ids[receiver_id] = key
 
             first_seen = key not in self._targets

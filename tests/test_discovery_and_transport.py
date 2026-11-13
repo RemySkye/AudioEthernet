@@ -187,3 +187,50 @@ def test_discover_once_gives_primary_broadcast_longer_window(monkeypatch) -> Non
         "255.255.255.255",
     ]
     assert deadlines[0] >= 0.60
+
+
+def test_sender_upgrades_wifi_target_to_ethernet_for_same_receiver(monkeypatch) -> None:
+    import logging
+    from audioethernet.sender_app import SenderApp
+
+    fake_stats = {
+        "Wi-Fi": SimpleNamespace(isup=True, speed=866),
+        "Ethernet": SimpleNamespace(isup=True, speed=1000),
+    }
+    fake_addrs = {
+        "Wi-Fi": [
+            SimpleNamespace(
+                family=socket.AF_INET,
+                address="192.168.1.191",
+                netmask="255.255.255.0",
+            )
+        ],
+        "Ethernet": [
+            SimpleNamespace(
+                family=socket.AF_INET,
+                address="192.168.0.2",
+                netmask="255.255.255.0",
+            )
+        ],
+    }
+    monkeypatch.setattr(discovery.psutil, "net_if_stats", lambda: fake_stats)
+    monkeypatch.setattr(discovery.psutil, "net_if_addrs", lambda: fake_addrs)
+
+    cfg = StreamConfig(role="sender", control_port=_free_udp_port(), data_port=_free_udp_port())
+    app = SenderApp(cfg, logging.getLogger("test-sender"))
+    try:
+        # Wi-Fi arrives first, then Ethernet arrives for same receiver_id -> upgrade!
+        app._on_receiver_discover("192.168.1.42", 50482, receiver_id="rx-1")
+        assert ("192.168.1.42", 50482) in app._targets
+
+        app._on_receiver_discover("192.168.0.1", 50482, receiver_id="rx-1")
+        assert ("192.168.0.1", 50482) in app._targets
+        assert ("192.168.1.42", 50482) not in app._targets
+
+        # Subsequent Wi-Fi discover must NOT downgrade active Ethernet path.
+        app._on_receiver_discover("192.168.1.42", 50482, receiver_id="rx-1")
+        assert ("192.168.0.1", 50482) in app._targets
+        assert ("192.168.1.42", 50482) not in app._targets
+    finally:
+        app._discovery.stop()
+        app._sender.close()

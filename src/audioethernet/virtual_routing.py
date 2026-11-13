@@ -52,7 +52,7 @@ def set_default_audio_endpoint(device_id: str) -> None:
 
     ole32 = ctypes.windll.ole32
     ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
-    ole32.CoInitializeEx.restype = ctypes.HRESULT
+    ole32.CoInitializeEx.restype = ctypes.c_long
     ole32.CoUninitialize.argtypes = []
     ole32.CoUninitialize.restype = None
     ole32.CoCreateInstance.argtypes = [

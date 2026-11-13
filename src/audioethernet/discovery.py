@@ -65,6 +65,39 @@ def _iface_priority(iface_name: str, speed_mbps: int) -> tuple[int, int]:
     return (tier, -speed_mbps)
 
 
+def peer_interface_priority(peer_ip: str) -> tuple[int, int]:
+    """Return local NIC priority tuple matching peer_ip's IPv4 subnet (lower is preferred)."""
+    try:
+        peer_addr = ipaddress.IPv4Address(peer_ip)
+    except ValueError:
+        return (3, 0)
+
+    try:
+        stats = psutil.net_if_stats()
+        addrs_by_if = psutil.net_if_addrs()
+    except OSError:
+        return (3, 0)
+
+    best: tuple[int, int] | None = None
+    for iface, addr_list in addrs_by_if.items():
+        if_stat = stats.get(iface)
+        if if_stat is not None and not if_stat.isup:
+            continue
+        speed = int(getattr(if_stat, "speed", 0) or 0) if if_stat else 0
+        prio = _iface_priority(iface, speed)
+        for addr in addr_list:
+            if addr.family != socket.AF_INET or not addr.address or not addr.netmask:
+                continue
+            try:
+                net = ipaddress.IPv4Interface(f"{addr.address}/{addr.netmask}").network
+            except ValueError:
+                continue
+            if peer_addr in net and (best is None or prio < best):
+                best = prio
+
+    return best if best is not None else (3, 0)
+
+
 def _get_broadcast_addresses() -> list[str]:
     candidates: list[tuple[tuple[int, int], str]] = []
     seen: set[str] = set()

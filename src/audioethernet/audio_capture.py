@@ -106,6 +106,15 @@ class LoopbackCapture:
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 if self._stop_event.is_set():
                     return
+                if mode == "unprocessed":
+                    already_started = self._started_event.is_set()
+                    if not already_started:
+                        self._startup_error = exc
+                        self._started_event.set()
+                    self._logger.exception("Unprocessed capture failed: %s", exc)
+                    if already_started and self._on_error:
+                        self._on_error(exc)
+                    return
                 self._logger.warning(
                     "Unprocessed capture could not stay active (%s). "
                     "Falling back to processed loopback.",
@@ -436,7 +445,20 @@ class LoopbackCapture:
 
     @staticmethod
     def _default_speaker_tokens() -> list[str]:
-        speaker = sc.default_speaker()
+        should_uninit = False
+        ole32 = getattr(getattr(ctypes, "windll", None), "ole32", None)
+        if ole32 is not None:
+            ole32.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            ole32.CoInitializeEx.restype = ctypes.c_long
+            hr = ole32.CoInitializeEx(None, 0x0)
+            should_uninit = hr in (0, 1)
+
+        try:
+            speaker = sc.default_speaker()
+        finally:
+            if should_uninit and ole32 is not None:
+                ole32.CoUninitialize()
+
         if speaker is None:
             return []
 
