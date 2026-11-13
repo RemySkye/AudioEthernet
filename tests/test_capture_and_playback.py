@@ -139,3 +139,29 @@ def test_playback_prefers_wasapi_default_output(monkeypatch) -> None:
         logger=DummyLogger(),
     )
     assert playback._resolve_output_device(2) == (1, True)
+
+
+def test_processed_recorder_emits_paced_silence_when_wasapi_idle() -> None:
+    capture = LoopbackCapture(
+        config=StreamConfig(role="sender", frame_ms=5, sample_rate=48000, bit_depth=16),
+        on_frame=lambda _b, _n: None,
+        logger=DummyLogger(),
+    )
+    emitted: list[tuple[bytes, int]] = []
+
+    class FakeIdleRecorder:
+        def _capture_available_frames(self) -> int:
+            return 0
+
+        def record(self, numframes=None):
+            raise AssertionError("Should not block in record() while idle")
+
+    def on_frame(data: bytes, n: int) -> None:
+        emitted.append((data, n))
+        if len(emitted) >= 3:
+            capture._stop_event.set()
+
+    capture._on_frame = on_frame
+    capture._drain_processed_recorder(FakeIdleRecorder(), 240)
+    assert len(emitted) >= 3
+    assert all(len(d) == 240 * 2 * 2 and n == 240 for d, n in emitted)

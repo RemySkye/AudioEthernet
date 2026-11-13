@@ -64,10 +64,20 @@ class FakePlayback:
 class FakeJitterBuffer:
     instances: list["FakeJitterBuffer"] = []
 
-    def __init__(self, *, frame_bytes: int, latency_profile: str, max_frames: int) -> None:
+    def __init__(
+        self,
+        *,
+        frame_bytes: int,
+        latency_profile: str,
+        max_frames: int,
+        bit_depth: int = 16,
+        channels: int = 2,
+    ) -> None:
         self.frame_bytes = frame_bytes
         self.latency_profile = latency_profile
         self.max_frames = max_frames
+        self.bit_depth = bit_depth
+        self.channels = channels
         self.reset_calls = 0
         FakeJitterBuffer.instances.append(self)
 

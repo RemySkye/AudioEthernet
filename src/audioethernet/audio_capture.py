@@ -235,17 +235,16 @@ class LoopbackCapture:
             self._logger.info("Using loopback source: %s", mic)
 
             target_frames = self._config.frame_samples
+            ring_buffer_frames = max(
+                target_frames * 16, self._config.sample_rate // 10
+            )
             with mic.recorder(
                 samplerate=self._config.sample_rate,
                 channels=self._config.channels,
-                blocksize=target_frames,
+                blocksize=ring_buffer_frames,
             ) as recorder:
                 self._started_event.set()
-
-                while not self._stop_event.is_set():
-                    block = recorder.record(numframes=target_frames)
-                    frame = self._float_to_pcm_bytes(block)
-                    self._on_frame(frame, target_frames)
+                self._drain_processed_recorder(recorder, target_frames)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             already_started = self._started_event.is_set()
             if not already_started:
@@ -257,6 +256,59 @@ class LoopbackCapture:
         finally:
             if com_initialized:
                 ctypes.windll.ole32.CoUninitialize()
+
+    def _drain_processed_recorder(self, recorder, target_frames: int) -> None:
+        if not hasattr(recorder, "_capture_available_frames"):
+            while not self._stop_event.is_set():
+                block = recorder.record(numframes=target_frames)
+                frame = self._float_to_pcm_bytes(block)
+                self._on_frame(frame, target_frames)
+            return
+
+        channels = self._config.channels
+        pending = np.empty((0, channels), dtype=np.float32)
+        frame_duration = target_frames / self._config.sample_rate
+        last_emit = time.monotonic()
+        silent_frame = bytes(self._config.frame_bytes)
+        poll_sleep = min(0.002, max(0.0005, frame_duration * 0.4))
+
+        while not self._stop_event.is_set():
+            avail = recorder._capture_available_frames()
+            if avail > 0:
+                block = recorder.record(numframes=None)
+                if len(block) > 0:
+                    if len(pending) == 0:
+                        pending = block
+                    else:
+                        pending = np.concatenate((pending, block), axis=0)
+                    offset = 0
+                    total = len(pending)
+                    while (total - offset) >= target_frames:
+                        slice_block = pending[offset : offset + target_frames]
+                        self._on_frame(
+                            self._float_to_pcm_bytes(slice_block), target_frames
+                        )
+                        offset += target_frames
+                        last_emit = time.monotonic()
+                    if offset > 0:
+                        pending = pending[offset:]
+                continue
+
+            now = time.monotonic()
+            if (now - last_emit) >= frame_duration * 2.5:
+                if len(pending) > 0:
+                    padded = np.zeros((target_frames, channels), dtype=np.float32)
+                    copy_n = min(target_frames, len(pending))
+                    padded[:copy_n] = pending[:copy_n]
+                    pending = np.empty((0, channels), dtype=np.float32)
+                    self._on_frame(self._float_to_pcm_bytes(padded), target_frames)
+                else:
+                    self._on_frame(silent_frame, target_frames)
+                last_emit += frame_duration
+                if (now - last_emit) > frame_duration * 2.0:
+                    last_emit = now - frame_duration
+            else:
+                time.sleep(poll_sleep)
 
     def _is_frame_effectively_silent(self, frame: bytes) -> bool:
         if self._config.bit_depth == 16:

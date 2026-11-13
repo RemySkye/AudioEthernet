@@ -43,6 +43,8 @@ class ReceiverApp:
             frame_bytes=self._stream_format.frame_bytes,
             latency_profile=self._config.latency_profile,
             max_frames=self._config.queue_max_frames,
+            bit_depth=self._stream_format.bit_depth,
+            channels=self._stream_format.channels,
         )
         if hasattr(self._jitter, "configure_timing"):
             self._jitter.configure_timing(
@@ -150,6 +152,8 @@ class ReceiverApp:
                 frame_bytes=stream_format.frame_bytes,
                 latency_profile=effective_profile,
                 max_frames=self._config.queue_max_frames,
+                bit_depth=stream_format.bit_depth,
+                channels=stream_format.channels,
             )
             if hasattr(self._jitter, "configure_timing"):
                 self._jitter.configure_timing(
@@ -254,7 +258,7 @@ class ReceiverApp:
         frame, dropped, underrun = jitter.pop()
         if dropped:
             self._metrics.inc_dropped_frames(dropped)
-        if underrun:
+        if underrun and self._is_connected():
             self._metrics.inc_underruns(1)
         return frame
 
