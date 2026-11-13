@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ctypes
+import sys
 import threading
 import time
-from typing import Callable, Optional
+from contextlib import contextmanager
+from typing import Callable, Iterator, Optional
 
 import sounddevice as sd
 
@@ -10,6 +13,24 @@ from .config import PROFILE_SETTINGS, StreamConfig
 from .protocol import StreamFormat
 
 FrameProvider = Callable[[], bytes]
+
+
+@contextmanager
+def _windows_com_scope() -> Iterator[None]:
+    if sys.platform != "win32":
+        yield
+        return
+    ole32 = getattr(getattr(ctypes, "windll", None), "ole32", None)
+    if ole32 is None:
+        yield
+        return
+    hr = int(ole32.CoInitialize(None))
+    should_uninit = hr in (0, 1)
+    try:
+        yield
+    finally:
+        if should_uninit:
+            ole32.CoUninitialize()
 
 
 class AudioPlayback:
@@ -38,8 +59,9 @@ class AudioPlayback:
             if self._stream is not None:
                 return
 
-            self._stream = self._open_stream(self._stream_format)
-            self._stream.start()
+            with _windows_com_scope():
+                self._stream = self._open_stream(self._stream_format)
+                self._stream.start()
             self._logger.info(
                 "Receiver playback started at %s Hz, %s-bit, frame %s samples",
                 self._stream_format.sample_rate,
@@ -59,31 +81,32 @@ class AudioPlayback:
 
             old_stream = self._stream
             self._stream = None
-            try:
-                old_stream.stop()
-                old_stream.close()
-            except sd.PortAudioError:
-                pass
-
-            try:
-                new_stream = self._open_stream(self._stream_format)
-                new_stream.start()
-                self._stream = new_stream
-            except sd.PortAudioError as exc:
-                self._logger.error(
-                    "Failed to reconfigure playback to %s Hz, %s-bit: %s",
-                    stream_format.sample_rate,
-                    stream_format.bit_depth,
-                    exc,
-                )
-                self._stream_format = previous_format
+            with _windows_com_scope():
                 try:
-                    fallback = self._open_stream(previous_format)
-                    fallback.start()
-                    self._stream = fallback
+                    old_stream.stop()
+                    old_stream.close()
                 except sd.PortAudioError:
-                    self._stream = None
-                return
+                    pass
+
+                try:
+                    new_stream = self._open_stream(self._stream_format)
+                    new_stream.start()
+                    self._stream = new_stream
+                except sd.PortAudioError as exc:
+                    self._logger.error(
+                        "Failed to reconfigure playback to %s Hz, %s-bit: %s",
+                        stream_format.sample_rate,
+                        stream_format.bit_depth,
+                        exc,
+                    )
+                    self._stream_format = previous_format
+                    try:
+                        fallback = self._open_stream(previous_format)
+                        fallback.start()
+                        self._stream = fallback
+                    except sd.PortAudioError:
+                        self._stream = None
+                    return
 
             self._logger.info(
                 "Receiver playback reconfigured to %s Hz, %s-bit, frame %s samples",
@@ -97,11 +120,12 @@ class AudioPlayback:
             stream = self._stream
             self._stream = None
         if stream is not None:
-            try:
-                stream.stop()
-                stream.close()
-            except sd.PortAudioError:
-                pass
+            with _windows_com_scope():
+                try:
+                    stream.stop()
+                    stream.close()
+                except sd.PortAudioError:
+                    pass
 
     def _resolve_output_device(self, channels: int) -> tuple[Optional[int], bool]:
         devices = sd.query_devices()
